@@ -19,7 +19,7 @@ jobs:
     env:
       TRUSTEDROUTER_API_KEY: ${{ secrets.TRUSTEDROUTER_SMOKE_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Explain unconfigured canary
