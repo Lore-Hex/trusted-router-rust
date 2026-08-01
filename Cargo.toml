@@ -17,7 +17,7 @@ authors = ["Lore Hex Corp <security@trustedrouter.com>"]
 
 [workspace.dependencies]
 async-stream = "0.3.6"
-base64 = "0.22.1"
+base64 = "0.23.0"
 constant_time_eq = "0.3.1"
 eventsource-stream = "0.2.3"
 futures-core = "0.3.31"
