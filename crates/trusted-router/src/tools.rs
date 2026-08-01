@@ -20,6 +20,9 @@ pub enum SelectionStrategy {
 /// Parameters for the Synth primitive.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SynthToolOptions {
+    /// Explicitly enables or disables this tool on a concrete model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
     /// Parallel panel models.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub analysis_models: Vec<String>,
@@ -60,6 +63,9 @@ pub fn synth_tool(options: SynthToolOptions) -> Value {
 /// Parameters for the Advisor primitive.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AdvisorToolOptions {
+    /// Explicitly enables or disables this tool on a concrete model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
     /// Recursion depth, default 2 and maximum 4.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub depth: Option<u8>,
@@ -75,9 +81,15 @@ pub struct AdvisorToolOptions {
     /// Maximum advisor output tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advisor_max_tokens: Option<u32>,
+    /// Worker deadline in milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_timeout_ms: Option<u64>,
     /// Advisor deadline in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advisor_timeout_ms: Option<u64>,
+    /// Ask the advisor before the first worker turn.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_initial_advice: Option<bool>,
 }
 
 /// Builds a `trustedrouter:advisor` tool.
@@ -88,6 +100,9 @@ pub fn advisor_tool(options: AdvisorToolOptions) -> Value {
 /// Parameters for the Selector primitive.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SelectorToolOptions {
+    /// Explicitly enables or disables this tool on a concrete model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
     /// Models that answer in parallel.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub analysis_models: Vec<String>,
@@ -110,6 +125,9 @@ pub fn selector_tool(options: SelectorToolOptions) -> Value {
 /// Parameters for the `MapReduce` primitive.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MapReduceToolOptions {
+    /// Explicitly enables or disables this tool on a concrete model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
     /// Mapper fallback chain.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mapper_models: Vec<String>,
@@ -144,6 +162,9 @@ pub fn map_reduce_tool(options: MapReduceToolOptions) -> Value {
 /// Parameters for the Subagent primitive.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SubagentToolOptions {
+    /// Explicitly enables or disables this tool on a concrete model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
     /// Outer controller model.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub controller_model: Option<String>,
@@ -165,6 +186,9 @@ pub struct SubagentToolOptions {
     /// Worker temperature.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
+    /// Optional provider reasoning configuration for delegated calls.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<Value>,
     /// Optional worker server tools.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<Value>,

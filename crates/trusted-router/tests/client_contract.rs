@@ -203,6 +203,25 @@ async fn privacy_filters_serialize_as_hard_requirements() {
     let zdr = serde_json::to_value(ProviderPreferences::zdr()).unwrap();
     assert_eq!(zdr["min_privacy"], "zdr");
     assert_eq!(zdr["data_collection"], "deny");
+
+    let advanced = ProviderPreferences {
+        usage: Some("credits".to_owned()),
+        quantizations: vec!["fp8".to_owned()],
+        max_price: [
+            ("prompt".to_owned(), json!(1.25)),
+            ("completion".to_owned(), json!(4.5)),
+        ]
+        .into_iter()
+        .collect(),
+        ..ProviderPreferences::default()
+    };
+    let advanced = serde_json::to_value(advanced).unwrap();
+    assert_eq!(advanced["usage"], "credits");
+    assert_eq!(advanced["quantizations"], json!(["fp8"]));
+    assert_eq!(
+        advanced["max_price"],
+        json!({"prompt": 1.25, "completion": 4.5})
+    );
 }
 
 #[tokio::test]

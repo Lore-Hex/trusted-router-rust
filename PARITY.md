@@ -16,8 +16,8 @@ and Java SDKs. The table is a release gate, not a roadmap claim.
 | Billing | checkout and stablecoin checkout | Complete |
 | Auth | session, logout, userinfo | Complete |
 | OAuth delegation | PKCE, state, authorize URL, loopback, key exchange | Complete |
-| Routing | provider order, only, ignore, fallback, sort, price caps | Complete |
-| Privacy | ZDR, confidential/E2E, US, EU filters and aliases | Complete |
+| Routing | provider order, only, ignore, fallback, sort, billing source, and quantization | Complete |
+| Privacy | ZDR, confidential/E2E, and US filters; EU routing alias | Complete |
 | Orchestration | Synth, Advisor, Selector, MapReduce, Subagent builders | Complete |
 | Named models | constants for major TrustedRouter aliases | Complete |
 | Error attribution | layer, source, provider, request ID, Retry-After | Complete |

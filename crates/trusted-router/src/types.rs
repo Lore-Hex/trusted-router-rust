@@ -85,15 +85,15 @@ pub struct ProviderPreferences {
     /// Provider legal jurisdiction filter, currently including `us`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jurisdiction: Option<String>,
-    /// Provider serving-region filter.
+    /// Billing source, `credits` or `byok`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub region: Option<String>,
-    /// Maximum prompt price as a decimal string.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_prompt_price: Option<String>,
-    /// Maximum completion price as a decimal string.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_completion_price: Option<String>,
+    pub usage: Option<String>,
+    /// Accepted provider quantizations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quantizations: Vec<String>,
+    /// OpenRouter-compatible maximum price object.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub max_price: BTreeMap<String, Value>,
     /// Future provider settings are preserved.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,

@@ -92,8 +92,9 @@ let response = client.chat_completions(request).await?;
 
 Available aliases include `trustedrouter/zdr`, `trustedrouter/e2e`,
 `trustedrouter/confidential`, `trustedrouter/eu`, and `trustedrouter/us`.
-Provider filters also support explicit order, allow and deny lists, price caps,
-jurisdiction, and serving region.
+Provider filters also support explicit order, allow and deny lists, billing
+source, quantization, fallback policy, sort mode, and US jurisdiction.
+Use `trustedrouter/eu` for the EU-focused routing pool.
 
 ## Orchestration
 
