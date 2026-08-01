@@ -1,11 +1,6 @@
 #![allow(missing_docs)]
 
-use base64::Engine;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use rand::rngs::OsRng;
-use rsa::pkcs8::{EncodePrivateKey, LineEnding};
-use rsa::traits::PublicKeyParts;
-use rsa::RsaPrivateKey;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -14,9 +9,10 @@ use trusted_router::{
     GCP_ISSUER,
 };
 
+const TEST_PRIVATE_KEY: &[u8] = include_bytes!("fixtures/attestation-private.pem");
+const TEST_RSA_MODULUS: &str = "h5lUGVA4611JPHsVBcu8h38KnZ1hZRs9bnyVk8RFzMNZot9ox3EAobT64XrlK5pYjFOB-rq3ra9j-B0Mxt8Lbn3EYs-ClXO84eCb2IiVLuclcjBDmW5v1xFq2a7Jpgpj7T0Kv-9YZ9GfJSZOM_mEyVMi2SX5tZbvbrVG17j9nBNjvege-Y4g7qzzPy3Im0MwPFD6W5k8kMVZWykrWlOAdG5zLhkK5B3euk7Jle7ZsqMV-wNoiO8l52QXGWwCi0M28KKTnFJgwgusoKcTk4_zGk1601vgioLpC3WkYagP615Eqt4d81YmLIROFqKW8xZHBXcroyAmH8eJdFJ4qZXGow";
+
 fn fixture(debug_status: &str) -> (Vec<u8>, AttestationVerificationOptions) {
-    let private = RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
-    let public = private.to_public_key();
     let certificate = b"same-connection-certificate".to_vec();
     let certificate_hash = hex(&Sha256::digest(&certificate));
     let expiry = SystemTime::now()
@@ -41,18 +37,17 @@ fn fixture(debug_status: &str) -> (Vec<u8>, AttestationVerificationOptions) {
     });
     let mut header = Header::new(Algorithm::RS256);
     header.kid = Some("test-key".to_owned());
-    let pem = private.to_pkcs8_pem(LineEnding::LF).unwrap();
     let token = encode(
         &header,
         &claims,
-        &EncodingKey::from_rsa_pem(pem.as_bytes()).unwrap(),
+        &EncodingKey::from_rsa_pem(TEST_PRIVATE_KEY).unwrap(),
     )
     .unwrap()
     .into_bytes();
     let jwks = json!({"keys": [{
         "kid": "test-key", "kty": "RSA",
-        "n": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(public.n().to_bytes_be()),
-        "e": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(public.e().to_bytes_be())
+        "n": TEST_RSA_MODULUS,
+        "e": "AQAB"
     }]});
     let options = AttestationVerificationOptions {
         policy: AttestationPolicy {
