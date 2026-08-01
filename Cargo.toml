@@ -9,7 +9,7 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.86"
+rust-version = "1.88"
 license = "Apache-2.0"
 repository = "https://github.com/Lore-Hex/trusted-router-rust"
 homepage = "https://trustedrouter.com"
@@ -31,7 +31,7 @@ bytes = "1.10.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 sha2 = "0.10.8"
-# Keep the attestation dependency graph compatible with the declared Rust 1.86 MSRV.
+# Keep the attestation dependency graph compatible with the declared Rust 1.88 MSRV.
 simple_asn1 = "=0.6.3"
 time = "=0.3.47"
 thiserror = "2.0.12"

@@ -3,7 +3,7 @@
 [![CI](https://github.com/Lore-Hex/trusted-router-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/Lore-Hex/trusted-router-rust/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/trusted-router.svg)](https://crates.io/crates/trusted-router)
 [![docs.rs](https://docs.rs/trusted-router/badge.svg)](https://docs.rs/trusted-router)
-[![MSRV](https://img.shields.io/badge/MSRV-1.86-blue)](Cargo.toml)
+[![MSRV](https://img.shields.io/badge/MSRV-1.88-blue)](Cargo.toml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 Official Rust SDK and stable C ABI for [TrustedRouter](https://trustedrouter.com).
@@ -19,7 +19,7 @@ attestation verification.
 cargo add trusted-router
 ```
 
-Rust 1.86 or newer is supported.
+Rust 1.88 or newer is supported.
 
 ## Chat
 
