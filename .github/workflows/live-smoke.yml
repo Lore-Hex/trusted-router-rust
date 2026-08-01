@@ -1,0 +1,30 @@
+name: Production smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 10 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trusted-router-rust-production-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TRUSTEDROUTER_API_KEY: ${{ secrets.TRUSTEDROUTER_SMOKE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Explain unconfigured canary
+        if: env.TRUSTEDROUTER_API_KEY == ''
+        run: echo "Set TRUSTEDROUTER_SMOKE_API_KEY to enable the production canary."
+      - name: Run production SDK canary
+        if: env.TRUSTEDROUTER_API_KEY != ''
+        run: cargo test -p trusted-router --test live_smoke -- --ignored --nocapture

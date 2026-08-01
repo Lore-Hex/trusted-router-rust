@@ -1,0 +1,9 @@
+/target/
+*.dylib
+*.dll
+*.so
+*.a
+*.lib
+.DS_Store
+.idea/
+.vscode/

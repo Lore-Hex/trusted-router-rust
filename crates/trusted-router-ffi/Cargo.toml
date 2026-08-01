@@ -1,0 +1,23 @@
+[package]
+name = "trusted-router-ffi"
+description = "Stable C ABI for the TrustedRouter Rust SDK"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+http.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+trusted-router = { path = "../trusted-router" }
+
+[lints]
+workspace = true
