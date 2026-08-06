@@ -26,8 +26,14 @@ pub struct AttestationPolicy {
     pub expected_cert_sha256: Option<String>,
     /// Optional container digest pin.
     pub expected_image_digest: Option<String>,
+    /// Published transition set accepted during staged rollouts.
+    #[serde(default)]
+    pub expected_image_digests: Vec<String>,
     /// Optional container reference pin.
     pub expected_image_reference: Option<String>,
+    /// Published image-reference transition set accepted during staged rollouts.
+    #[serde(default)]
+    pub expected_image_references: Vec<String>,
     /// Development-only escape hatch. Production callers should leave this false.
     #[serde(default)]
     pub allow_debug: bool,
@@ -39,7 +45,9 @@ impl Default for AttestationPolicy {
             audience: "quill-cloud".to_owned(),
             expected_cert_sha256: None,
             expected_image_digest: None,
+            expected_image_digests: Vec::new(),
             expected_image_reference: None,
+            expected_image_references: Vec::new(),
             allow_debug: false,
         }
     }
@@ -91,9 +99,15 @@ pub struct TrustRelease {
     /// Container image reference.
     #[serde(default)]
     pub image_reference: String,
+    /// Image references accepted while a staged rollout is in progress.
+    #[serde(default)]
+    pub accepted_image_references: Vec<String>,
     /// Container image digest.
     #[serde(default)]
     pub image_digest: String,
+    /// Digests accepted while a staged rollout is in progress.
+    #[serde(default)]
+    pub accepted_image_digests: Vec<String>,
     /// Published issuer.
     #[serde(default)]
     pub attestation_issuer: String,
@@ -119,6 +133,16 @@ pub fn policy_from_trust_release(
     release: &TrustRelease,
     cert_sha256: Option<String>,
 ) -> AttestationPolicy {
+    let expected_image_digests = if release.accepted_image_digests.is_empty() {
+        nonempty(&release.image_digest).into_iter().collect()
+    } else {
+        release.accepted_image_digests.clone()
+    };
+    let expected_image_references = if release.accepted_image_references.is_empty() {
+        nonempty(&release.image_reference).into_iter().collect()
+    } else {
+        release.accepted_image_references.clone()
+    };
     AttestationPolicy {
         audience: if release.attestation_audience.is_empty() {
             "quill-cloud".to_owned()
@@ -127,7 +151,9 @@ pub fn policy_from_trust_release(
         },
         expected_cert_sha256: cert_sha256,
         expected_image_digest: nonempty(&release.image_digest),
+        expected_image_digests,
         expected_image_reference: nonempty(&release.image_reference),
+        expected_image_references,
         allow_debug: false,
     }
 }
@@ -289,15 +315,29 @@ fn verify_claims(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
-    require_equal(
-        "image digest",
-        &image_digest,
-        policy.expected_image_digest.as_deref(),
-    )?;
-    require_equal(
+    let accepted_image_digests = if policy.expected_image_digests.is_empty() {
+        policy
+            .expected_image_digest
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        policy.expected_image_digests.clone()
+    };
+    require_one_of("image digest", &image_digest, &accepted_image_digests)?;
+    let accepted_image_references = if policy.expected_image_references.is_empty() {
+        policy
+            .expected_image_reference
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        policy.expected_image_references.clone()
+    };
+    require_one_of(
         "image reference",
         &image_reference,
-        policy.expected_image_reference.as_deref(),
+        &accepted_image_references,
     )?;
     let nonces = string_list(
         claims
@@ -406,6 +446,13 @@ fn require_equal(field: &str, actual: &str, expected: Option<&str>) -> Result<()
         if !safe_eq(actual, expected) {
             return Err(Error::Attestation(format!("{field} pin mismatch")));
         }
+    }
+    Ok(())
+}
+
+fn require_one_of(field: &str, actual: &str, expected: &[String]) -> Result<()> {
+    if !expected.is_empty() && !expected.iter().any(|value| safe_eq(actual, value)) {
+        return Err(Error::Attestation(format!("{field} pin mismatch")));
     }
     Ok(())
 }
