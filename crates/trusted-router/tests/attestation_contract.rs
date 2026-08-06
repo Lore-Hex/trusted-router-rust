@@ -75,6 +75,21 @@ async fn verifies_signature_image_nonce_and_certificate() {
 }
 
 #[tokio::test]
+async fn accepts_any_digest_in_published_rollout_set() {
+    let (token, mut options) = fixture("disabled-since-boot");
+    options.policy.expected_image_digest = Some("sha256:new".to_owned());
+    options.policy.expected_image_digests =
+        vec!["sha256:trusted".to_owned(), "sha256:new".to_owned()];
+    options.policy.expected_image_reference = Some("registry.example/new:release".to_owned());
+    options.policy.expected_image_references = vec![
+        "registry.example/trusted:release".to_owned(),
+        "registry.example/new:release".to_owned(),
+    ];
+    let result = verify_gateway_attestation(&token, options).await.unwrap();
+    assert_eq!(result.image_digest, "sha256:trusted");
+}
+
+#[tokio::test]
 async fn rejects_debug_workload_and_bad_nonce() {
     let (token, options) = fixture("enabled");
     let error = verify_gateway_attestation(&token, options)
