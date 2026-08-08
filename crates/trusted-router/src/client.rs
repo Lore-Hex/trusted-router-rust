@@ -1,8 +1,8 @@
 //! Asynchronous `TrustedRouter` client and typed endpoint methods.
 
 use crate::constants::{
-    DEFAULT_API_BASE_URL, DEFAULT_CONTROL_BASE_URL, DEFAULT_MAX_RETRIES, DEFAULT_REQUEST_TIMEOUT,
-    DEFAULT_STATUS_URL, DEFAULT_TRUST_RELEASE_URL,
+    ALIAS_API_BASE_URLS, DEFAULT_API_BASE_URL, DEFAULT_CONTROL_BASE_URL, DEFAULT_MAX_RETRIES,
+    DEFAULT_REQUEST_TIMEOUT, DEFAULT_STATUS_URL, DEFAULT_TRUST_RELEASE_URL,
 };
 use crate::types::{
     ActivityResponse, AuthSessionResponse, BroadcastDestination, BroadcastDestinationList,
@@ -133,6 +133,7 @@ impl ClientBuilder {
         };
         Ok(Client {
             api_key: self.api_key,
+            api_base_urls: inference_base_urls(&api_base_url),
             api_base_url,
             control_base_url,
             workspace_id: self.workspace_id,
@@ -149,6 +150,11 @@ impl ClientBuilder {
 pub struct Client {
     pub(crate) api_key: Option<String>,
     pub(crate) api_base_url: Url,
+    /// Inference candidates: `api_base_url` first, then the alias domains.
+    ///
+    /// This must hold MORE THAN ONE entry or failover cannot engage — the
+    /// request loop advances only while another candidate remains.
+    pub(crate) api_base_urls: Vec<Url>,
     pub(crate) control_base_url: Url,
     pub(crate) workspace_id: Option<String>,
     pub(crate) timeout: Option<Duration>,
@@ -171,6 +177,12 @@ impl Client {
     /// Returns the configured inference base URL.
     pub fn api_base_url(&self) -> &Url {
         &self.api_base_url
+    }
+
+    /// Returns every inference candidate in preference order: the configured
+    /// base URL first, then the alias domains when the default host is in use.
+    pub fn api_base_urls(&self) -> &[Url] {
+        &self.api_base_urls
     }
 
     /// Returns the configured control-plane base URL.
@@ -582,4 +594,28 @@ fn query_path<T: AsRef<str>>(path: &str, pairs: &[(T, String)]) -> Result<String
         Some(query) => format!("{path}?{query}"),
         None => path.to_owned(),
     })
+}
+
+/// Builds the inference candidate list: primary first, then the alias domains.
+///
+/// Aliases are added ONLY for the default host. A caller who configured their
+/// own base URL — a private deployment, a test server, a regional pin — gets
+/// exactly that; silently redirecting their traffic to a public alias would be
+/// worse than failing.
+pub(crate) fn inference_base_urls(primary: &Url) -> Vec<Url> {
+    // Compare through parse_base_url, not the raw constant: the builder
+    // normalises a trailing slash onto the base so `join` resolves correctly,
+    // so the parsed default and the stored primary differ textually even when
+    // they are the same endpoint.
+    let default = parse_base_url(DEFAULT_API_BASE_URL, "inference").ok();
+    if default.as_ref() != Some(primary) {
+        return vec![primary.clone()];
+    }
+    let mut out = vec![primary.clone()];
+    for alias in ALIAS_API_BASE_URLS {
+        if let Ok(url) = parse_base_url(alias, "inference") {
+            out.push(url);
+        }
+    }
+    out
 }
