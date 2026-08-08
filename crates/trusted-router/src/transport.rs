@@ -320,7 +320,10 @@ fn map_reqwest_error(error: reqwest::Error) -> Error {
 /// 500. A 429 should back off against the same host, and a 500 means a server
 /// received and processed a non-idempotent inference request.
 fn failoverable_status(status: u16) -> bool {
-    matches!(status, 502 | 503 | 504)
+    // 502..=504 rather than 502 | 503 | 504 only because clippy's
+    // manual_range_patterns is denied here. The set is the same three statuses,
+    // and 500 stays outside it deliberately.
+    matches!(status, 502..=504)
 }
 
 #[cfg(test)]

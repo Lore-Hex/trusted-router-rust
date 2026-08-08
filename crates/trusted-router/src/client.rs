@@ -1,9 +1,8 @@
 //! Asynchronous `TrustedRouter` client and typed endpoint methods.
 
 use crate::constants::{
-    ALIAS_API_BASE_URLS,
-    DEFAULT_API_BASE_URL, DEFAULT_CONTROL_BASE_URL, DEFAULT_MAX_RETRIES, DEFAULT_REQUEST_TIMEOUT,
-    DEFAULT_STATUS_URL, DEFAULT_TRUST_RELEASE_URL,
+    ALIAS_API_BASE_URLS, DEFAULT_API_BASE_URL, DEFAULT_CONTROL_BASE_URL, DEFAULT_MAX_RETRIES,
+    DEFAULT_REQUEST_TIMEOUT, DEFAULT_STATUS_URL, DEFAULT_TRUST_RELEASE_URL,
 };
 use crate::types::{
     ActivityResponse, AuthSessionResponse, BroadcastDestination, BroadcastDestinationList,
