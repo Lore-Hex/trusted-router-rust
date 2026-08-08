@@ -21,9 +21,14 @@ impl Client {
         body: Option<Value>,
         options: CallOptions,
     ) -> Result<Vec<u8>> {
-        let url = self.relative_url(plane, path)?;
+        // Candidates, not one pinned URL. This was `let url = ...` computed
+        // once outside the loop, so every retry re-hit the same host and
+        // failover could not move even in principle.
+        let candidates = self.plane_urls(plane, path)?;
+        let mut base_index = 0usize;
         let mut attempt = 0;
         loop {
+            let url = candidates[base_index].clone();
             let result = self
                 .send_once(method.clone(), url.clone(), body.clone(), &options)
                 .await;
@@ -42,11 +47,23 @@ impl Client {
                     if attempt >= self.max_retries || !retryable_status(status.as_u16()) {
                         return Err(error);
                     }
+                    // Only gateway-level statuses move domains. A 500 means a
+                    // server received and processed the request, and inference
+                    // is not idempotent, so retrying it elsewhere risks
+                    // charging twice.
+                    if failoverable_status(status.as_u16()) && base_index + 1 < candidates.len() {
+                        base_index += 1;
+                    }
                     sleep(retry_delay(attempt, retry_after)).await;
                 }
                 Err(error) => {
                     if attempt >= self.max_retries || !retryable_transport(&error) {
                         return Err(error);
+                    }
+                    // A transport failure means no server saw the request, so
+                    // moving to another domain cannot double-execute anything.
+                    if base_index + 1 < candidates.len() {
+                        base_index += 1;
                     }
                     sleep(retry_delay(attempt, None)).await;
                 }
@@ -173,6 +190,32 @@ impl Client {
         }
     }
 
+    /// Every candidate URL for a plane, in preference order.
+    ///
+    /// Inference walks the alias domains; the control plane keeps its single
+    /// endpoint, because those calls are not what a domain outage strands.
+    fn plane_urls(&self, plane: Plane, path: &str) -> Result<Vec<Url>> {
+        match plane {
+            Plane::Control => Ok(vec![self.relative_url(plane, path)?]),
+            Plane::Inference => {
+                let trimmed = path.trim_start_matches('/');
+                if !path.starts_with('/') || path.starts_with("//") || path.contains('\\') {
+                    return Err(Error::InvalidConfiguration(
+                        "API path must be a root-relative path".to_owned(),
+                    ));
+                }
+                let mut out = Vec::with_capacity(self.api_base_urls.len());
+                for base in &self.api_base_urls {
+                    out.push(
+                        base.join(trimmed)
+                            .map_err(|error| Error::InvalidConfiguration(error.to_string()))?,
+                    );
+                }
+                Ok(out)
+            }
+        }
+    }
+
     fn relative_url(&self, plane: Plane, path: &str) -> Result<Url> {
         if !path.starts_with('/') || path.starts_with("//") || path.contains('\\') {
             return Err(Error::InvalidConfiguration(
@@ -268,5 +311,43 @@ fn map_reqwest_error(error: reqwest::Error) -> Error {
         Error::Timeout(error.to_string())
     } else {
         Error::Transport(error.to_string())
+    }
+}
+
+/// Statuses that justify moving to a different domain.
+///
+/// Deliberately narrower than [`retryable_status`], which also covers 429 and
+/// 500. A 429 should back off against the same host, and a 500 means a server
+/// received and processed a non-idempotent inference request.
+fn failoverable_status(status: u16) -> bool {
+    matches!(status, 502 | 503 | 504)
+}
+
+#[cfg(test)]
+mod failover_tests {
+    use super::{failoverable_status, retryable_status};
+
+    #[test]
+    fn only_gateway_statuses_move_domains() {
+        for status in [502u16, 503, 504] {
+            assert!(failoverable_status(status), "{status} should fail over");
+        }
+    }
+
+    #[test]
+    fn a_500_does_not_move_domains() {
+        // A 500 means a server received and processed the request. Inference is
+        // not idempotent, so retrying it on another domain risks charging
+        // twice. It stays RETRYABLE against the same host.
+        assert!(!failoverable_status(500), "500 must not move domains");
+        assert!(retryable_status(500), "500 should still retry in place");
+    }
+
+    #[test]
+    fn a_429_does_not_move_domains() {
+        // Rate limiting is not a reason to spread load onto another domain;
+        // back off against the same host instead.
+        assert!(!failoverable_status(429));
+        assert!(retryable_status(429));
     }
 }

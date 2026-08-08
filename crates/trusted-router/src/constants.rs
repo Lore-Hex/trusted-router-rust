@@ -6,6 +6,18 @@ use std::time::Duration;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Attested inference API base URL.
 pub const DEFAULT_API_BASE_URL: &str = "https://api.trustedrouter.com/v1";
+
+/// Exact aliases of [`DEFAULT_API_BASE_URL`], on separate domains served by
+/// separate DNS providers (trustedrouter.com from Google Cloud DNS, these two
+/// from Route 53). They resolve to the same attested enclaves.
+///
+/// The domain is a single point of failure sitting above the whole deployment:
+/// a zone that stops answering, a registrar lock, or a resolver handing out a
+/// stale record takes the API down however many clouds are behind it.
+pub const ALIAS_API_BASE_URLS: [&str; 2] = [
+    "https://api.allyrouter.com/v1",
+    "https://api.uptimerouter.com/v1",
+];
 /// Dashboard and account control-plane API base URL.
 pub const DEFAULT_CONTROL_BASE_URL: &str = "https://trustedrouter.com/v1";
 /// Public signed trust-release document.
