@@ -80,9 +80,15 @@ impl Client {
         body: Value,
         options: CallOptions,
     ) -> Result<reqwest::Response> {
-        let url = self.relative_url(plane, path)?;
+        // Same candidate walk as request_bytes. This was a single pinned URL,
+        // so a stream that failed to open re-opened against the host that had
+        // just refused it — the non-streaming path could move domains and the
+        // streaming path could not.
+        let candidates = self.plane_urls(plane, path)?;
+        let mut base_index = 0usize;
         let mut attempt = 0;
         loop {
+            let url = candidates[base_index].clone();
             match self
                 .send_once(method.clone(), url.clone(), Some(body.clone()), &options)
                 .await
@@ -98,11 +104,19 @@ impl Client {
                     if attempt >= self.max_retries || !retryable_status(status.as_u16()) {
                         return Err(error);
                     }
+                    // The response never opened, so nothing was streamed and
+                    // moving hosts cannot duplicate a delivered stream.
+                    if failoverable_status(status.as_u16()) && base_index + 1 < candidates.len() {
+                        base_index += 1;
+                    }
                     sleep(retry_delay(attempt, retry_after)).await;
                 }
                 Err(error) => {
                     if attempt >= self.max_retries || !retryable_transport(&error) {
                         return Err(error);
+                    }
+                    if base_index + 1 < candidates.len() {
+                        base_index += 1;
                     }
                     sleep(retry_delay(attempt, None)).await;
                 }
@@ -352,5 +366,112 @@ mod failover_tests {
         // back off against the same host instead.
         assert!(!failoverable_status(429));
         assert!(retryable_status(429));
+    }
+}
+
+/// End-to-end proof that the STREAMING open walks the candidate list too.
+///
+/// These live in the crate rather than `tests/` so they can set
+/// `api_base_urls` directly: the aliases only activate for the real default
+/// host, which no test can reach, so two local servers stand in for two
+/// domains. Without this the streaming walk had no coverage at all — it was a
+/// single pinned URL and nothing noticed.
+#[cfg(test)]
+mod candidate_walk_tests {
+    use crate::client::{CallOptions, Client, Plane};
+    use http::Method;
+    use serde_json::json;
+    use url::Url;
+    use wiremock::matchers::method as method_matcher;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn base(server: &MockServer) -> Url {
+        // Trailing slash so `join` appends instead of replacing the last
+        // segment, matching what parse_base_url does for real base URLs.
+        Url::parse(&format!("{}/v1/", server.uri())).unwrap()
+    }
+
+    async fn two_hosts(first_status: u16) -> (MockServer, MockServer) {
+        let down = MockServer::start().await;
+        let up = MockServer::start().await;
+        Mock::given(method_matcher("POST"))
+            .respond_with(ResponseTemplate::new(first_status).set_body_json(json!({
+                "error": {"message": "unavailable"}
+            })))
+            .mount(&down)
+            .await;
+        Mock::given(method_matcher("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("data: [DONE]\n\n"))
+            .mount(&up)
+            .await;
+        (down, up)
+    }
+
+    fn client_over(down: &MockServer, up: &MockServer) -> Client {
+        let mut client = Client::builder()
+            .api_key("sk-test")
+            .max_retries(2)
+            .build()
+            .unwrap();
+        // Set the singular base too. A regression back to a pinned
+        // `relative_url` would otherwise fall through to the real default host
+        // and put a live network call inside the test suite — the failure would
+        // still show up, but for the wrong reason and off-machine.
+        client.api_base_url = base(down);
+        client.api_base_urls = vec![base(down), base(up)];
+        client
+    }
+
+    #[tokio::test]
+    async fn open_stream_moves_to_the_next_candidate_on_503() {
+        let (down, up) = two_hosts(503).await;
+        let client = client_over(&down, &up);
+
+        let response = client
+            .open_stream(
+                Plane::Inference,
+                Method::POST,
+                "/chat/completions",
+                json!({"model": "trustedrouter/auto"}),
+                CallOptions::default(),
+            )
+            .await
+            .expect("stream should open on the second candidate");
+
+        assert!(response.status().is_success());
+        assert_eq!(down.received_requests().await.unwrap().len(), 1);
+        assert_eq!(
+            up.received_requests().await.unwrap().len(),
+            1,
+            "streaming never reached the second domain"
+        );
+    }
+
+    #[tokio::test]
+    async fn open_stream_keeps_a_500_on_the_same_candidate() {
+        // Same billing-safety rule as the non-streaming path.
+        let (down, up) = two_hosts(500).await;
+        let client = client_over(&down, &up);
+
+        client
+            .open_stream(
+                Plane::Inference,
+                Method::POST,
+                "/chat/completions",
+                json!({"model": "trustedrouter/auto"}),
+                CallOptions::default(),
+            )
+            .await
+            .expect_err("a 500 should surface, not move domains");
+
+        assert_eq!(
+            up.received_requests().await.unwrap().len(),
+            0,
+            "a 500 leaked to another domain"
+        );
+        assert!(
+            down.received_requests().await.unwrap().len() > 1,
+            "should retry in place"
+        );
     }
 }
