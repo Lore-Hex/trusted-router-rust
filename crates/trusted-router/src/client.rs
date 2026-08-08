@@ -52,6 +52,7 @@ pub struct ClientBuilder {
     pub(crate) workspace_id: Option<String>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) max_retries: usize,
+    pub(crate) regional_failover: bool,
     pub(crate) headers: BTreeMap<String, String>,
     pub(crate) http_client: Option<reqwest::Client>,
 }
@@ -65,6 +66,7 @@ impl Default for ClientBuilder {
             workspace_id: None,
             timeout: Some(DEFAULT_REQUEST_TIMEOUT),
             max_retries: DEFAULT_MAX_RETRIES,
+            regional_failover: true,
             headers: BTreeMap::new(),
             http_client: None,
         }
@@ -108,6 +110,20 @@ impl ClientBuilder {
         self
     }
 
+    /// Pins the client to a single host when set to `false`.
+    ///
+    /// Defaults to `true`, which lets an inference request move to
+    /// [`ALIAS_API_BASE_URLS`] after a connection failure or a 502/503/504.
+    /// Setting `false` collapses the candidate list to the configured base URL,
+    /// so every attempt goes to the host you named. Retries still happen; they
+    /// just stay put.
+    ///
+    /// [`ALIAS_API_BASE_URLS`]: crate::ALIAS_API_BASE_URLS
+    pub fn regional_failover(mut self, value: bool) -> Self {
+        self.regional_failover = value;
+        self
+    }
+
     /// Adds a default header.
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.insert(name.into(), value.into());
@@ -133,7 +149,11 @@ impl ClientBuilder {
         };
         Ok(Client {
             api_key: self.api_key,
-            api_base_urls: inference_base_urls(&api_base_url),
+            api_base_urls: if self.regional_failover {
+                inference_base_urls(&api_base_url)
+            } else {
+                vec![api_base_url.clone()]
+            },
             api_base_url,
             control_base_url,
             workspace_id: self.workspace_id,

@@ -154,9 +154,9 @@ regions are healthy.
 
 `ALIAS_API_BASE_URLS` — `api.allyrouter.com` and `api.uptimerouter.com` — are
 exact aliases of the primary, on separate domains served by separate DNS
-providers, resolving to the same attested enclaves. The transport walks them in
-order after the primary, so a healthy deployment never touches them. Nothing to
-configure; it is on by default.
+providers, resolving to the same attested enclaves. Both the request loop and
+the streaming open walk them in order after the primary, so a healthy
+deployment never touches them. Nothing to configure; it is on by default.
 
 Failover changes host only on connection failures and on `502`, `503`, or
 `504` — deliberately narrower than the retry set above. A `500` means a server
@@ -165,9 +165,18 @@ re-sending it to another domain risks being billed twice; a 500 is retried on
 the same host.
 
 Aliases are used only for the default base URL. A custom one — a private
-deployment, a test server, a regional pin — is never rewritten, and setting one
-is currently the only way to pin the client to a single host: unlike the other
-TrustedRouter SDKs, this crate has no `regional_failover` switch yet.
+deployment, a test server, a regional pin — is never rewritten.
+
+```rust,no_run
+# fn main() -> trusted_router::Result<()> {
+// Pin every attempt to one host. Retries still happen; they just stay put.
+let client = trusted_router::Client::builder()
+    .api_key("sk-tr-example")
+    .regional_failover(false)
+    .build()?;
+# let _ = client;
+# Ok(()) }
+```
 
 ## Blocking Rust
 
