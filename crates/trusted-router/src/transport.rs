@@ -50,7 +50,8 @@ impl Client {
                     // Only gateway-level statuses move domains. A 500 means a
                     // server received and processed the request, and inference
                     // is not idempotent, so retrying it elsewhere risks
-                    // charging twice.
+                    // running the work again: not a double charge to the
+                    // caller, but a second upstream generation we pay for.
                     if failoverable_status(status.as_u16(), &headers)
                         && base_index + 1 < candidates.len()
                     {
