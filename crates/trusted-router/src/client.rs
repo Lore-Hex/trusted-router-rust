@@ -1,9 +1,11 @@
 //! Asynchronous `TrustedRouter` client and typed endpoint methods.
 
 use crate::constants::{
-    ALIAS_API_BASE_URLS, DEFAULT_API_BASE_URL, DEFAULT_CONTROL_BASE_URL, DEFAULT_MAX_RETRIES,
-    DEFAULT_REQUEST_TIMEOUT, DEFAULT_STATUS_URL, DEFAULT_TRUST_RELEASE_URL,
+    DEFAULT_API_BASE_URL, DEFAULT_CONTROL_BASE_URL, DEFAULT_MAX_RETRIES, DEFAULT_REQUEST_TIMEOUT,
+    DEFAULT_STATUS_URL, DEFAULT_TRUST_RELEASE_URL,
 };
+use crate::transport::headers::ensure_idempotency_key;
+use crate::transport::routing::{inference_base_urls, parse_base_url};
 use crate::types::{
     ActivityResponse, AuthSessionResponse, BroadcastDestination, BroadcastDestinationList,
     ChatCompletion, ChatRequest, CheckoutResponse, CreditsBalance, EmbeddingResponse,
@@ -227,7 +229,7 @@ impl Client {
 
     /// Creates a non-streaming OpenAI-compatible chat completion.
     pub async fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {
-        let options = with_generated_idempotency(request.call_options.clone());
+        let options = ensure_idempotency_key(request.call_options.clone());
         self.request(
             Plane::Inference,
             Method::POST,
@@ -240,7 +242,7 @@ impl Client {
 
     /// Creates a non-streaming stateless Responses API response.
     pub async fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {
-        let options = with_generated_idempotency(request.call_options.clone());
+        let options = ensure_idempotency_key(request.call_options.clone());
         self.request(
             Plane::Inference,
             Method::POST,
@@ -268,7 +270,7 @@ impl Client {
 
     /// Sends an Anthropic-compatible Messages request.
     pub async fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {
-        let options = with_generated_idempotency(request.call_options.clone());
+        let options = ensure_idempotency_key(request.call_options.clone());
         let body = serde_json::to_value(&request)
             .map_err(|error| Error::Serialization(error.to_string()))?;
         self.request(
@@ -283,7 +285,7 @@ impl Client {
 
     /// Creates embeddings.
     pub async fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {
-        let options = with_generated_idempotency(request.call_options.clone());
+        let options = ensure_idempotency_key(request.call_options.clone());
         let body = serde_json::to_value(&request)
             .map_err(|error| Error::Serialization(error.to_string()))?;
         self.request(
@@ -426,7 +428,7 @@ impl Client {
             Method::POST,
             "/broadcast/destinations",
             Some(body),
-            with_generated_idempotency(options),
+            ensure_idempotency_key(options),
         )
         .await
     }
@@ -459,7 +461,7 @@ impl Client {
             Method::PATCH,
             &resource_path("/broadcast/destinations", id)?,
             Some(patch),
-            with_generated_idempotency(options),
+            ensure_idempotency_key(options),
         )
         .await
     }
@@ -475,7 +477,7 @@ impl Client {
             Method::DELETE,
             &resource_path("/broadcast/destinations", id)?,
             None,
-            with_generated_idempotency(options),
+            ensure_idempotency_key(options),
         )
         .await
     }
@@ -492,7 +494,7 @@ impl Client {
             Method::POST,
             &path,
             None,
-            with_generated_idempotency(options),
+            ensure_idempotency_key(options),
         )
         .await
     }
@@ -514,7 +516,7 @@ impl Client {
             Method::POST,
             "/billing/checkout",
             Some(Value::Object(body)),
-            with_generated_idempotency(options),
+            ensure_idempotency_key(options),
         )
         .await
     }
@@ -569,28 +571,6 @@ impl Client {
     }
 }
 
-fn parse_base_url(value: &str, name: &str) -> Result<Url> {
-    let mut url = Url::parse(value).map_err(|error| {
-        Error::InvalidConfiguration(format!("invalid {name} base URL: {error}"))
-    })?;
-    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-        return Err(Error::InvalidConfiguration(format!(
-            "{name} base URL must be an HTTP(S) origin"
-        )));
-    }
-    if !url.path().ends_with('/') {
-        url.set_path(&format!("{}/", url.path()));
-    }
-    Ok(url)
-}
-
-fn with_generated_idempotency(mut options: CallOptions) -> CallOptions {
-    if options.idempotency_key.is_none() {
-        options.idempotency_key = Some(format!("tr-req-{}", uuid::Uuid::new_v4().simple()));
-    }
-    options
-}
-
 fn resource_path(prefix: &str, id: &str) -> Result<String> {
     if id.is_empty() || id.contains('/') || id.contains('?') || id.contains('#') {
         return Err(Error::InvalidConfiguration(
@@ -614,28 +594,4 @@ fn query_path<T: AsRef<str>>(path: &str, pairs: &[(T, String)]) -> Result<String
         Some(query) => format!("{path}?{query}"),
         None => path.to_owned(),
     })
-}
-
-/// Builds the inference candidate list: primary first, then the alias domains.
-///
-/// Aliases are added ONLY for the default host. A caller who configured their
-/// own base URL — a private deployment, a test server, a regional pin — gets
-/// exactly that; silently redirecting their traffic to a public alias would be
-/// worse than failing.
-pub(crate) fn inference_base_urls(primary: &Url) -> Vec<Url> {
-    // Compare through parse_base_url, not the raw constant: the builder
-    // normalises a trailing slash onto the base so `join` resolves correctly,
-    // so the parsed default and the stored primary differ textually even when
-    // they are the same endpoint.
-    let default = parse_base_url(DEFAULT_API_BASE_URL, "inference").ok();
-    if default.as_ref() != Some(primary) {
-        return vec![primary.clone()];
-    }
-    let mut out = vec![primary.clone()];
-    for alias in ALIAS_API_BASE_URLS {
-        if let Ok(url) = parse_base_url(alias, "inference") {
-            out.push(url);
-        }
-    }
-    out
 }
