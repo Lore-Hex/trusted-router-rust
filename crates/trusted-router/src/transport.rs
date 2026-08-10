@@ -44,14 +44,17 @@ impl Client {
                     let bytes = self.read_response(response, &options).await?;
                     let payload = serde_json::from_slice::<Value>(&bytes).ok();
                     let error = classify_api_error(status.as_u16(), payload, retry_after);
-                    if attempt >= self.max_retries || !retryable_status(status.as_u16()) {
+                    if attempt >= self.max_retries || !retryable_status(status.as_u16(), &headers) {
                         return Err(error);
                     }
                     // Only gateway-level statuses move domains. A 500 means a
                     // server received and processed the request, and inference
                     // is not idempotent, so retrying it elsewhere risks
-                    // charging twice.
-                    if failoverable_status(status.as_u16()) && base_index + 1 < candidates.len() {
+                    // running the work again: not a double charge to the
+                    // caller, but a second upstream generation we pay for.
+                    if failoverable_status(status.as_u16(), &headers)
+                        && base_index + 1 < candidates.len()
+                    {
                         base_index += 1;
                     }
                     sleep(retry_delay(attempt, retry_after)).await;
@@ -101,12 +104,14 @@ impl Client {
                     let bytes = self.read_response(response, &options).await?;
                     let payload = serde_json::from_slice::<Value>(&bytes).ok();
                     let error = classify_api_error(status.as_u16(), payload, retry_after);
-                    if attempt >= self.max_retries || !retryable_status(status.as_u16()) {
+                    if attempt >= self.max_retries || !retryable_status(status.as_u16(), &headers) {
                         return Err(error);
                     }
                     // The response never opened, so nothing was streamed and
                     // moving hosts cannot duplicate a delivered stream.
-                    if failoverable_status(status.as_u16()) && base_index + 1 < candidates.len() {
+                    if failoverable_status(status.as_u16(), &headers)
+                        && base_index + 1 < candidates.len()
+                    {
                         base_index += 1;
                     }
                     sleep(retry_delay(attempt, retry_after)).await;
@@ -294,7 +299,35 @@ fn parse_header_value(value: &str) -> Result<HeaderValue> {
         .map_err(|error| Error::InvalidConfiguration(format!("invalid header value: {error}")))
 }
 
-fn retryable_status(status: u16) -> bool {
+/// The gateway's explicit verdict, which overrides every heuristic below it.
+///
+/// A status code cannot say whether a provider already ran. A 502 from "could
+/// not reach the provider" and a 502 from "the generation succeeded and then
+/// settlement failed" are indistinguishable here, and only the second is
+/// dangerous to re-send. The gateway knows and says so, using the same
+/// `x-should-retry` header `OpenAI`'s clients honour.
+///
+/// `None` means the server did not say, which leaves existing behaviour intact
+/// for older gateways and for deliberately unlabelled paths.
+fn should_retry_verdict(headers: &HeaderMap) -> Option<bool> {
+    match headers
+        .get("x-should-retry")?
+        .to_str()
+        .ok()?
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+fn retryable_status(status: u16, headers: &HeaderMap) -> bool {
+    if let Some(verdict) = should_retry_verdict(headers) {
+        return verdict;
+    }
     status == 429 || matches!(status, 500 | 502 | 503 | 504)
 }
 
@@ -312,6 +345,13 @@ fn retry_delay(attempt: usize, retry_after: Option<Duration>) -> Duration {
 }
 
 fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
+    // retry-after-ms wins when both are present: it is the more precise of the
+    // two, and a server that sends it means the sub-second value.
+    if let Some(raw) = headers.get("retry-after-ms").and_then(|v| v.to_str().ok()) {
+        if let Ok(millis) = raw.trim().parse::<u64>() {
+            return Some(Duration::from_millis(millis));
+        }
+    }
     let value = headers.get(RETRY_AFTER)?.to_str().ok()?;
     if let Ok(seconds) = value.trim().parse::<u64>() {
         return Some(Duration::from_secs(seconds));
@@ -333,7 +373,13 @@ fn map_reqwest_error(error: reqwest::Error) -> Error {
 /// Deliberately narrower than [`retryable_status`], which also covers 429 and
 /// 500. A 429 should back off against the same host, and a 500 means a server
 /// received and processed a non-idempotent inference request.
-fn failoverable_status(status: u16) -> bool {
+fn failoverable_status(status: u16, headers: &HeaderMap) -> bool {
+    // An explicit x-should-retry: false forbids moving outright — that is the
+    // gateway saying a provider already ran, which is exactly when re-sending
+    // anywhere costs a second generation.
+    if should_retry_verdict(headers) == Some(false) {
+        return false;
+    }
     // 502..=504 rather than 502 | 503 | 504 only because clippy's
     // manual_range_patterns is denied here. The set is the same three statuses,
     // and 500 stays outside it deliberately.
@@ -342,12 +388,32 @@ fn failoverable_status(status: u16) -> bool {
 
 #[cfg(test)]
 mod failover_tests {
-    use super::{failoverable_status, retryable_status};
+    use super::{failoverable_status, parse_retry_after, retryable_status, should_retry_verdict};
+    use reqwest::header::HeaderMap;
+    use std::time::Duration;
+
+    fn no_headers() -> HeaderMap {
+        HeaderMap::new()
+    }
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.insert(
+                reqwest::header::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                value.parse().unwrap(),
+            );
+        }
+        map
+    }
 
     #[test]
     fn only_gateway_statuses_move_domains() {
         for status in [502u16, 503, 504] {
-            assert!(failoverable_status(status), "{status} should fail over");
+            assert!(
+                failoverable_status(status, &no_headers()),
+                "{status} should fail over"
+            );
         }
     }
 
@@ -356,16 +422,78 @@ mod failover_tests {
         // A 500 means a server received and processed the request. Inference is
         // not idempotent, so retrying it on another domain risks charging
         // twice. It stays RETRYABLE against the same host.
-        assert!(!failoverable_status(500), "500 must not move domains");
-        assert!(retryable_status(500), "500 should still retry in place");
+        assert!(
+            !failoverable_status(500, &no_headers()),
+            "500 must not move domains"
+        );
+        assert!(
+            retryable_status(500, &no_headers()),
+            "500 should still retry in place"
+        );
     }
 
     #[test]
     fn a_429_does_not_move_domains() {
         // Rate limiting is not a reason to spread load onto another domain;
         // back off against the same host instead.
-        assert!(!failoverable_status(429));
-        assert!(retryable_status(429));
+        assert!(!failoverable_status(429, &no_headers()));
+        assert!(retryable_status(429, &no_headers()));
+    }
+
+    #[test]
+    fn the_verdict_only_speaks_when_the_server_did() {
+        assert_eq!(should_retry_verdict(&no_headers()), None);
+        assert_eq!(
+            should_retry_verdict(&headers(&[("x-should-retry", "TRUE")])),
+            Some(true)
+        );
+        assert_eq!(
+            should_retry_verdict(&headers(&[("x-should-retry", "false")])),
+            Some(false)
+        );
+        // Anything we do not understand must not be read as a verdict.
+        assert_eq!(
+            should_retry_verdict(&headers(&[("x-should-retry", "perhaps")])),
+            None
+        );
+    }
+
+    #[test]
+    fn a_labelled_spent_response_is_neither_retried_nor_moved() {
+        let spent = headers(&[("x-should-retry", "false")]);
+        assert!(
+            !retryable_status(502, &spent),
+            "the gateway said a provider already ran"
+        );
+        assert!(!failoverable_status(502, &spent), "and it must not move");
+    }
+
+    #[test]
+    fn a_labelled_retryable_response_is_retried_against_the_status() {
+        // The header overrides in both directions, as OpenAI's clients do.
+        let retry = headers(&[("x-should-retry", "true")]);
+        assert!(retryable_status(400, &retry));
+    }
+
+    #[test]
+    fn retry_after_ms_is_honored_and_beats_retry_after() {
+        assert_eq!(
+            parse_retry_after(&headers(&[("retry-after-ms", "250")])),
+            Some(Duration::from_millis(250))
+        );
+        assert_eq!(
+            parse_retry_after(&headers(&[("retry-after-ms", "500"), ("retry-after", "9")])),
+            Some(Duration::from_millis(500)),
+            "the precise header should win"
+        );
+        assert_eq!(
+            parse_retry_after(&headers(&[
+                ("retry-after-ms", "soon"),
+                ("retry-after", "3")
+            ])),
+            Some(Duration::from_secs(3)),
+            "junk should fall through, not poison the backoff"
+        );
     }
 }
 
