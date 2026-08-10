@@ -1,6 +1,7 @@
 //! Server-sent event streaming for Chat Completions and Responses.
 
 use crate::client::{CallOptions, Client, Plane};
+use crate::transport::headers::ensure_idempotency_key;
 use crate::types::{ChatCompletionChunk, ChatRequest, ResponseEvent, ResponsesRequest};
 use crate::{Error, Result};
 use eventsource_stream::Eventsource;
@@ -37,7 +38,7 @@ pub type TextStream = Pin<Box<dyn Stream<Item = Result<String>> + Send>>;
 impl Client {
     /// Opens parsed Chat Completions chunks. Final usage is requested automatically.
     pub async fn chat_completions_stream(&self, request: ChatRequest) -> Result<JsonStream> {
-        let options = stream_options(request.call_options.clone());
+        let options = ensure_idempotency_key(request.call_options.clone());
         let mut body = crate::types::with_stream(&request, true)?;
         if let Some(object) = body.as_object_mut() {
             object
@@ -94,7 +95,7 @@ impl Client {
 
     /// Opens `OpenAI` Responses API lifecycle events.
     pub async fn responses_stream(&self, request: ResponsesRequest) -> Result<ResponseEventStream> {
-        let options = stream_options(request.call_options.clone());
+        let options = ensure_idempotency_key(request.call_options.clone());
         let body = crate::types::with_stream(&request, true)?;
         let response = self
             .open_stream(
@@ -137,7 +138,7 @@ impl Client {
         body: Value,
         options: CallOptions,
     ) -> Result<SseStream> {
-        let options = stream_options(options);
+        let options = ensure_idempotency_key(options);
         let response = self
             .open_stream(Plane::Inference, Method::POST, path, body, options.clone())
             .await?;
@@ -191,11 +192,4 @@ fn parse_json_event(data: &str) -> Result<Value> {
         return Err(crate::error::classify_api_error(status, Some(value), None));
     }
     Ok(value)
-}
-
-fn stream_options(mut options: CallOptions) -> CallOptions {
-    if options.idempotency_key.is_none() {
-        options.idempotency_key = Some(format!("tr-req-{}", uuid::Uuid::new_v4().simple()));
-    }
-    options
 }
