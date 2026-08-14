@@ -42,7 +42,7 @@ pub struct AttestationPolicy {
 impl AttestationPolicy {
     /// Whether this policy constrains *which* workload image is acceptable.
     ///
-    /// Both image checks go through [`require_one_of`], which is a no-op on an
+    /// Both image checks go through a private helper that is a no-op on an
     /// empty accepted set, so a policy pinning neither a digest nor a reference
     /// accepts any genuinely-attested Confidential Space workload — it proves
     /// "some CSP VM" rather than "the gateway build we published". Policy
