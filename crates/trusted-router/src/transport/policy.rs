@@ -110,12 +110,36 @@ pub(crate) fn retryable_transport(error: &Error) -> bool {
 
 /// Full-jitter exponential backoff: 500ms base, 30s cap, exponent-capped,
 /// floored by the server's `retry-after`/`retry-after-ms` when present.
+/// Ceiling on a server-supplied `retry-after` floor.
+///
+/// `retry-after` arrives from whatever answered the socket — the gateway, a
+/// proxy in front of it, an alias domain — so it is untrusted input, and it was
+/// applied as an *uncapped* floor on the backoff sleep. The `u64` parse means
+/// non-finite values cannot get in here, but finite ones were accepted
+/// silently: `retry-after: 100000` parks a caller for 27.8 hours per attempt,
+/// and `u64::MAX` yields a Duration of roughly 584 billion years.
+///
+/// This SDK additionally honours the HTTP-date form, which trusted-router-py,
+/// -js and -go deliberately ignore, so a far-future date is a second route to
+/// the same stall. The bound closes both.
+///
+/// 60s matches `MAX_RETRY_AFTER_SECONDS` in the Python and JS SDKs and
+/// `MaxRetryAfterSeconds` in the Go SDK, so every SDK accepts the same header
+/// language.
+pub(crate) const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
+
 pub(crate) fn retry_delay(attempt: usize, retry_after: Option<Duration>) -> Duration {
     let exponent = u32::try_from(attempt.min(6)).unwrap_or(6);
     let ceiling_ms = 500_u64.saturating_mul(2_u64.pow(exponent)).min(30_000);
     let jitter_ms = rand::thread_rng().gen_range(0..=ceiling_ms);
+    // Re-clamp rather than trusting the caller: retry_delay is reachable
+    // independently of parse_retry_after, so the bound belongs on the value
+    // that actually becomes a sleep.
+    // The jitter is capped at 30s by ceiling_ms and the floor at MAX_RETRY_AFTER,
+    // so the max of the two is bounded by MAX_RETRY_AFTER without a further clamp.
     retry_after
         .unwrap_or_default()
+        .min(MAX_RETRY_AFTER)
         .max(Duration::from_millis(jitter_ms))
 }
 
@@ -124,15 +148,16 @@ pub(crate) fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
     // two, and a server that sends it means the sub-second value.
     if let Some(raw) = headers.get("retry-after-ms").and_then(|v| v.to_str().ok()) {
         if let Ok(millis) = raw.trim().parse::<u64>() {
-            return Some(Duration::from_millis(millis));
+            return Some(Duration::from_millis(millis).min(MAX_RETRY_AFTER));
         }
     }
     let value = headers.get(RETRY_AFTER)?.to_str().ok()?;
     if let Ok(seconds) = value.trim().parse::<u64>() {
-        return Some(Duration::from_secs(seconds));
+        return Some(Duration::from_secs(seconds).min(MAX_RETRY_AFTER));
     }
     let timestamp = httpdate::parse_http_date(value).ok()?;
-    timestamp.duration_since(SystemTime::now()).ok()
+    let until = timestamp.duration_since(SystemTime::now()).ok()?;
+    Some(until.min(MAX_RETRY_AFTER))
 }
 
 /// Transport-error classification: timeout stays a timeout, everything else is
@@ -271,5 +296,205 @@ mod failover_tests {
             Some(Duration::from_secs(3)),
             "junk should fall through, not poison the backoff"
         );
+    }
+}
+
+// Property tests for the `retry-after` bound.
+//
+// `retry-after` arrives from whatever answered the socket — the gateway, a
+// proxy, an alias domain — so it is untrusted input, and it was applied as an
+// *uncapped* floor on the backoff sleep. The law:
+//
+//     for every attempt a and every header set H over arbitrary strings,
+//         parse_retry_after(H) is None, or <= MAX_RETRY_AFTER
+//         retry_delay(a, ..)   is <= MAX_RETRY_AFTER
+//
+// Rust dodges the half of this defect that hangs the Python SDK: the `u64`
+// parse rejects "inf", "Infinity", "NaN" and negatives outright, so no
+// non-finite value can reach a Duration. That is luck of the parser, not a
+// bound, and it does nothing about the finite half:
+//
+//     retry-after: 100000                 -> 27h46m40s per attempt
+//     retry-after: 18446744073709551615   -> ~584 billion years
+//
+// And this SDK has an exposure the others do not: it honours the HTTP-date
+// form, which trusted-router-py, -js and -go all deliberately ignore. A
+// far-future date is a second, independent route to the same stall.
+//
+// Mirrors tests/test_retry_after_bounds.py, test/retry-after-bounds.test.js
+// and retry_after_bounds_test.go.
+#[cfg(test)]
+mod retry_after_bound_tests {
+    use super::{parse_retry_after, retry_delay, MAX_RETRY_AFTER};
+    use reqwest::header::{HeaderMap, HeaderValue, RETRY_AFTER};
+    use std::time::{Duration, SystemTime};
+
+    const RUNS: usize = 2_000;
+
+    /// mulberry32, so failures reproduce without adding a dependency.
+    struct Rng(u32);
+
+    impl Rng {
+        fn next_u32(&mut self) -> u32 {
+            self.0 = self.0.wrapping_add(0x6d2b_79f5);
+            let mut t = self.0;
+            t = (t ^ (t >> 15)).wrapping_mul(t | 1);
+            t ^= t.wrapping_add((t ^ (t >> 7)).wrapping_mul(t | 0x3d));
+            t ^ (t >> 14)
+        }
+    }
+
+    fn headers(name: &str, value: &str) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        if let Ok(parsed) = HeaderValue::from_str(value) {
+            if name == "retry-after" {
+                map.insert(RETRY_AFTER, parsed);
+            } else {
+                map.insert("retry-after-ms", parsed);
+            }
+        }
+        map
+    }
+
+    /// The values a hostile or broken peer can actually send.
+    const INTERESTING: &[&str] = &[
+        "inf",
+        "Inf",
+        "Infinity",
+        "-Infinity",
+        "NaN",
+        "nan",
+        "1e300",
+        "100000",
+        "86400",
+        "18446744073709551615",
+        "-5",
+        "0",
+        "30",
+        "0.5",
+        "  30  ",
+        "30s",
+        "",
+        "   ",
+    ];
+
+    fn sample(rng: &mut Rng, index: usize) -> String {
+        if index < INTERESTING.len() {
+            INTERESTING[index].to_owned()
+        } else {
+            // Numeric noise; the interesting region is large integers.
+            format!("{}", u64::from(rng.next_u32()) * u64::from(rng.next_u32()))
+        }
+    }
+
+    #[test]
+    fn a_parsed_hint_is_never_above_the_bound() {
+        let mut rng = Rng(0x5eed);
+        for index in 0..RUNS {
+            let raw = sample(&mut rng, index);
+            for name in ["retry-after", "retry-after-ms"] {
+                if let Some(parsed) = parse_retry_after(&headers(name, &raw)) {
+                    assert!(
+                        parsed <= MAX_RETRY_AFTER,
+                        "{name}: {raw:?} produced an unbounded hint {parsed:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_sleep_is_never_above_the_bound() {
+        let mut rng = Rng(0x00c0_ffee);
+        for index in 0..RUNS {
+            let raw = sample(&mut rng, index);
+            // Attempt is quantified too: the jitter base is exponential in it.
+            let attempt = (rng.next_u32() % 2_000) as usize;
+            let delay = retry_delay(attempt, parse_retry_after(&headers("retry-after", &raw)));
+            assert!(
+                delay <= MAX_RETRY_AFTER,
+                "{raw:?} at attempt {attempt} produced sleep {delay:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn retry_delay_reclamps_a_hint_handed_to_it_directly() {
+        // retry_delay is reachable without going through the parser.
+        for seconds in [0_u64, 1, 30, 60, 100_000, u64::MAX] {
+            let delay = retry_delay(0, Some(Duration::from_secs(seconds)));
+            assert!(
+                delay <= MAX_RETRY_AFTER,
+                "direct hint {seconds}s produced sleep {delay:?}"
+            );
+        }
+        assert!(retry_delay(0, Some(Duration::MAX)) <= MAX_RETRY_AFTER);
+    }
+
+    #[test]
+    fn the_values_that_used_to_park_a_caller_are_clamped() {
+        for raw in ["100000", "86400", "18446744073709551615"] {
+            let parsed = parse_retry_after(&headers("retry-after", raw)).expect("parses");
+            assert_eq!(parsed, MAX_RETRY_AFTER, "retry-after: {raw}");
+        }
+    }
+
+    #[test]
+    fn non_finite_values_remain_rejected_by_the_parser() {
+        // The u64 parse is what makes these unreachable, not the new bound.
+        // Pinned so a future switch to a float parse cannot reopen the hole.
+        for raw in ["inf", "Inf", "Infinity", "NaN", "nan", "-5", "1e300"] {
+            assert!(
+                parse_retry_after(&headers("retry-after", raw)).is_none(),
+                "retry-after: {raw} should not parse"
+            );
+        }
+    }
+
+    #[test]
+    fn hints_within_the_bound_are_honoured_exactly() {
+        // The bound must not disturb the values it was not aimed at.
+        for seconds in [0_u64, 1, 5, 30, 59, 60] {
+            let parsed =
+                parse_retry_after(&headers("retry-after", &seconds.to_string())).expect("parses");
+            assert_eq!(parsed, Duration::from_secs(seconds));
+            assert!(retry_delay(0, Some(parsed)) >= parsed);
+        }
+    }
+
+    #[test]
+    fn a_far_future_http_date_is_clamped() {
+        // The exposure unique to this SDK: py/js/go all ignore the HTTP-date
+        // form, so this route to an enormous sleep exists only here.
+        let far_future = SystemTime::now() + Duration::from_secs(100 * 365 * 24 * 3600);
+        let formatted = httpdate::fmt_http_date(far_future);
+        let parsed = parse_retry_after(&headers("retry-after", &formatted))
+            .expect("an HTTP-date retry-after still parses");
+        assert!(
+            parsed <= MAX_RETRY_AFTER,
+            "a date 100 years out produced {parsed:?}"
+        );
+    }
+
+    #[test]
+    fn the_millisecond_header_still_wins_when_usable() {
+        let mut map = HeaderMap::new();
+        map.insert("retry-after-ms", HeaderValue::from_static("1500"));
+        map.insert(RETRY_AFTER, HeaderValue::from_static("7"));
+        assert_eq!(parse_retry_after(&map), Some(Duration::from_millis(1_500)));
+    }
+
+    #[test]
+    fn a_junk_millisecond_header_falls_through_to_seconds() {
+        for junk in ["inf", "nan", "-5", "abc"] {
+            let mut map = HeaderMap::new();
+            map.insert("retry-after-ms", HeaderValue::from_str(junk).unwrap());
+            map.insert(RETRY_AFTER, HeaderValue::from_static("7"));
+            assert_eq!(
+                parse_retry_after(&map),
+                Some(Duration::from_secs(7)),
+                "retry-after-ms {junk:?} should fall through"
+            );
+        }
     }
 }
