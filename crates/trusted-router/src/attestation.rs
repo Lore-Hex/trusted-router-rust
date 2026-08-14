@@ -39,6 +39,24 @@ pub struct AttestationPolicy {
     pub allow_debug: bool,
 }
 
+impl AttestationPolicy {
+    /// Whether this policy constrains *which* workload image is acceptable.
+    ///
+    /// Both image checks go through a private helper that is a no-op on an
+    /// empty accepted set, so a policy pinning neither a digest nor a reference
+    /// accepts any genuinely-attested Confidential Space workload — it proves
+    /// "some CSP VM" rather than "the gateway build we published". Policy
+    /// construction and verification both refuse that state rather than
+    /// silently downgrading the guarantee.
+    #[must_use]
+    pub fn pins_image_identity(&self) -> bool {
+        !self.expected_image_digests.is_empty()
+            || self.expected_image_digest.is_some()
+            || !self.expected_image_references.is_empty()
+            || self.expected_image_reference.is_some()
+    }
+}
+
 impl Default for AttestationPolicy {
     fn default() -> Self {
         Self {
@@ -132,7 +150,7 @@ pub struct TrustRelease {
 pub fn policy_from_trust_release(
     release: &TrustRelease,
     cert_sha256: Option<String>,
-) -> AttestationPolicy {
+) -> Result<AttestationPolicy> {
     let expected_image_digests = if release.accepted_image_digests.is_empty() {
         nonempty(&release.image_digest).into_iter().collect()
     } else {
@@ -143,7 +161,7 @@ pub fn policy_from_trust_release(
     } else {
         release.accepted_image_references.clone()
     };
-    AttestationPolicy {
+    let policy = AttestationPolicy {
         audience: if release.attestation_audience.is_empty() {
             "quill-cloud".to_owned()
         } else {
@@ -155,7 +173,20 @@ pub fn policy_from_trust_release(
         expected_image_reference: nonempty(&release.image_reference),
         expected_image_references,
         allow_debug: false,
+    };
+    if !policy.pins_image_identity() {
+        // A truncated body, an error page that happens to parse as JSON, or a
+        // schema change all land here. Returning the policy anyway would leave
+        // the caller believing it verified a specific build while both image
+        // checks silently no-op, so refuse where the degraded input is visible.
+        return Err(Error::Attestation(
+            "trust release pins no image identity (none of image_digest, \
+             accepted_image_digests, image_reference, accepted_image_references); \
+             refusing to build a policy that would accept any Confidential Space workload"
+                .to_owned(),
+        ));
     }
+    Ok(policy)
 }
 
 /// Inputs for offline or live attestation verification.
@@ -315,6 +346,16 @@ fn verify_claims(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
+    if !policy.pins_image_identity() {
+        // Defence in depth for hand-constructed policies: `require_one_of` is a
+        // no-op on an empty accepted set, so reaching it with nothing pinned
+        // would accept any attested workload.
+        return Err(Error::Attestation(
+            "attestation policy pins no image identity; refusing to verify against a \
+             policy that cannot distinguish the gateway from any other workload"
+                .to_owned(),
+        ));
+    }
     let accepted_image_digests = if policy.expected_image_digests.is_empty() {
         policy
             .expected_image_digest
