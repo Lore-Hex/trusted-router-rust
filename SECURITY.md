@@ -1,22 +1,32 @@
-# Security
+# Security Policy
 
-Report SDK or TrustedRouter security issues privately to
-`security@trustedrouter.com`. Do not open public issues containing credentials,
-prompts, outputs, exploit details, or unpublished findings.
+## Reporting a vulnerability
 
-## SDK boundaries
+Email **security@trustedrouter.com**. Please do not open a public issue for a
+security report.
 
-- Prompt-bearing calls go only to the configured inference plane.
-- Account and catalog operations go only to the configured control plane.
-- Authenticated request methods accept root-relative paths only.
-- Status, trust release, and JWKS fetches never receive API-key, workspace, or
-  idempotency headers.
-- Retryable mutations carry idempotency keys.
-- The SDK does not log request or response bodies.
-- Attestation rejects debug workloads, insecure boot, unsupported hardware,
-  expired signatures, pin mismatches, replayed nonces, and bad TLS bindings.
-- C entry points contain panics and require explicit result ownership.
+Include what you can — affected version or commit, reproduction steps, and the
+impact you believe it has. A partial report sent early is more useful than a
+complete one sent late.
 
-Applications must keep reusable API keys out of client-distributed binaries.
-Desktop and mobile applications should use OAuth credit delegation and the
-platform's protected credential store.
+## What to expect
+
+- **Acknowledgement within 72 hours.**
+- An assessment of severity and affected components within 5 business days.
+- Notification when a fix ships, and credit if you would like it.
+
+We treat any suspected exposure of customer content as the highest severity by
+default, and we notify affected users without waiting for a root-cause analysis
+to finish.
+
+## Scope
+
+This policy covers the code in this repository. TrustedRouter's hosted service
+runs inside hardware-attested confidential computing environments; the published
+measurements and how to verify them are at https://trustedrouter.com/trust
+
+## Safe harbour
+
+We will not pursue or support legal action against anyone who reports a
+vulnerability in good faith, avoids privacy violations and service degradation,
+and gives us reasonable time to respond before disclosing.
