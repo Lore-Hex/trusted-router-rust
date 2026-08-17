@@ -245,13 +245,18 @@ pub(crate) fn resolve_telemetry_enabled(
 
 /// True for inference-plane paths the header channel covers. `/attestation`
 /// is excluded for cross-SDK parity: the Python SDK fetches attestation
-/// outside its retry engine, so no SDK sends `x-tr-client` on it. The engine
-/// passes the RESOLVED candidate path, not the caller's raw string, so dot
-/// segments (`/x/../attestation`) cannot dodge the exclusion.
+/// outside its retry engine, so no SDK sends `x-tr-client` on it. The
+/// authorize route is excluded as a hard §2.2 MUST — client context is never
+/// sent on `/internal/gateway/authorize`, whose idempotency fingerprint
+/// hashes every body key and whose header surface must stay attempt-stable.
+/// The engine passes the RESOLVED candidate path, not the caller's raw
+/// string, so dot segments (`/x/../attestation`) cannot dodge either
+/// exclusion.
 pub(crate) fn tracked_inference_path(path: &str) -> bool {
     let clean = path.split(['?', '#']).next().unwrap_or(path);
     let clean = clean.trim_end_matches('/');
-    !clean.ends_with("/attestation") && !clean.contains("/attestation/")
+    let excluded = |route: &str| clean.ends_with(route) || clean.contains(&format!("{route}/"));
+    !excluded("/attestation") && !excluded("/internal/gateway/authorize")
 }
 
 /// Classifies a transport failure into the §5.2 vocabulary while the typed
@@ -321,7 +326,14 @@ pub(crate) fn classify_chain(top: &(dyn std::error::Error + 'static), connect: b
         if text.contains("dns error") || text.contains("failed to lookup address") {
             return ErrorClass::Dns;
         }
-        if text.contains("certificate") || text.contains("handshake") || text.contains("tls") {
+        // "corrupt message" is rustls's wording for a non-TLS or damaged
+        // record ("received corrupt message of type InvalidContentType"),
+        // which reaches here as an opaque io::Error of kind Other.
+        if text.contains("certificate")
+            || text.contains("handshake")
+            || text.contains("tls")
+            || text.contains("corrupt message")
+        {
             return ErrorClass::Tls;
         }
         if text.contains("proxy") {
@@ -443,14 +455,20 @@ impl RequestRecorder {
             let previous = self.attempts.last()?;
             let attempt_started = self.attempt_started?;
             let first_started = self.first_started.unwrap_or(attempt_started);
-            values.push(("po", previous.outcome.as_str().to_owned()));
-            values.push((
-                "pc",
-                previous
-                    .error_class
-                    .map_or("none", ErrorClass::as_str)
-                    .to_owned(),
-            ));
+            // §3.2's po vocabulary is none|http_error|transport_error|
+            // timeout|stream_broken — there is no "ok". A forced retry after
+            // a sub-400 response (x-should-retry: true on a 3xx) therefore
+            // degrades to po=none;pc=none rather than emitting a value the
+            // enclave would drop the whole header for.
+            let (po, pc) = match previous.outcome {
+                AttemptOutcome::Ok => ("none", "none"),
+                outcome => (
+                    outcome.as_str(),
+                    previous.error_class.map_or("none", ErrorClass::as_str),
+                ),
+            };
+            values.push(("po", po.to_owned()));
+            values.push(("pc", pc.to_owned()));
             values.push(("ph", previous.host.as_str().to_owned()));
             values.push(("pm", previous.elapsed_ms.to_string()));
             values.push((
@@ -607,55 +625,71 @@ mod tests {
     }
 
     #[test]
-    fn absurd_recorder_state_still_yields_a_bounded_in_grammar_header() {
-        // Even u64::MAX millisecond counts serialise to 20 digits: inside the
-        // 24-char value bound and the 160-byte header bound. The guard behind
-        // this is finalize_header, pinned separately below.
-        let first = Instant::now();
+    fn recorded_durations_past_the_bound_clamp_on_the_wire() {
+        // Drive the REAL recording path for an attempt that has been running
+        // for two hours: Instant cannot be faked, so the recorded start is
+        // rewound instead. pm and sm must clamp to the contract's 3600000
+        // ceiling — never serialise past it.
         let mut recorder = RequestRecorder::new(false);
-        recorder.attempts.push(AttemptRecord {
-            index: 0,
-            host: Host::EuropeWest4,
-            outcome: AttemptOutcome::TransportError,
-            error_class: Some(ErrorClass::ConnectTimeout),
-            elapsed_ms: u64::MAX,
-            moved: true,
-        });
-        recorder.failover_used = true;
-        recorder.first_started = Some(first);
-        recorder.attempt_started = Some(first);
-        recorder.current_host = Some(Host::UsCentral1);
-        recorder.current_index = Some(99);
-        let header = recorder.header_value().expect("still in grammar");
+        recorder.begin_attempt(&apex_url());
+        let two_hours = Duration::from_secs(2 * 3600);
+        let Some(rewound) = recorder
+            .attempt_started
+            .and_then(|started| started.checked_sub(two_hours))
+        else {
+            // A platform whose monotonic clock is younger than two hours
+            // cannot represent the rewind; the clamp itself stays pinned by
+            // durations_clamp_to_the_contract_bounds_with_saturating_arithmetic.
+            return;
+        };
+        recorder.attempt_started = Some(rewound);
+        recorder.first_started = Some(rewound);
+        recorder.on_transport_error(ErrorClass::ConnectTimeout, true);
+        recorder.begin_attempt(&apex_url());
+        let header = recorder.header_value().expect("in grammar");
+        assert!(header.contains(";pm=3600000;"), "pm must clamp: {header}");
+        assert!(header.contains(";sm=3600000;"), "sm must clamp: {header}");
         assert!(header.len() <= 160);
         assert_header_grammar(&header);
-        assert!(header.starts_with("v=1;a=99;"));
     }
 
     #[test]
     fn an_attempt_index_past_the_contract_bound_sends_nothing() {
         // §3.2 bounds a to 0..99. Past it the SDK stays silent instead of
-        // emitting a header the enclave would drop whole. The previous
-        // attempt exists, so ONLY the index bound decides.
-        let first = Instant::now();
+        // emitting a header the enclave would drop whole. The state here is
+        // production-shaped: one hundred real begin/record cycles.
+        let url = apex_url();
         let mut recorder = RequestRecorder::new(false);
-        recorder.attempts.push(AttemptRecord {
-            index: 99,
-            host: Host::Apex,
-            outcome: AttemptOutcome::HttpError,
-            error_class: None,
-            elapsed_ms: 10,
-            moved: false,
-        });
-        recorder.first_started = Some(first);
-        recorder.attempt_started = Some(first);
-        recorder.current_host = Some(Host::Apex);
-        recorder.current_index = Some(100);
-        assert_eq!(recorder.header_value(), None);
-        recorder.current_index = Some(usize::MAX);
-        assert_eq!(recorder.header_value(), None);
-        recorder.current_index = Some(99);
-        assert!(recorder.header_value().is_some(), "99 itself is in bounds");
+        for _ in 0..99 {
+            recorder.begin_attempt(&url);
+            recorder.on_transport_error(ErrorClass::ConnectRefused, false);
+        }
+        recorder.begin_attempt(&url);
+        let at_bound = recorder.header_value().expect("99 itself is in bounds");
+        assert!(at_bound.starts_with("v=1;a=99;"), "{at_bound}");
+        assert_header_grammar(&at_bound);
+        recorder.on_transport_error(ErrorClass::ConnectRefused, false);
+        recorder.begin_attempt(&url);
+        assert_eq!(recorder.header_value(), None, "attempt 100 must be silent");
+    }
+
+    #[test]
+    fn a_forced_retry_after_ok_serialises_po_none() {
+        // Serializer vector for the cross-SDK ruling: a previous attempt
+        // whose outcome was ok (a sub-400 response retried on
+        // x-should-retry: true) must degrade to po=none;pc=none. The
+        // engine-path proof is a_forced_retry_after_a_sub_400_response_
+        // reports_po_none in tests/telemetry_header.rs.
+        let url = apex_url();
+        let mut recorder = RequestRecorder::new(false);
+        recorder.begin_attempt(&url);
+        recorder.on_response(302);
+        recorder.begin_attempt(&url);
+        let header = recorder.header_value().expect("in grammar");
+        assert!(
+            header.starts_with("v=1;a=1;po=none;pc=none;ph=apex;"),
+            "{header}"
+        );
     }
 
     fn assert_header_grammar(header: &str) {
@@ -859,13 +893,17 @@ mod tests {
     }
 
     #[test]
-    fn attestation_is_the_untracked_inference_path() {
+    fn attestation_and_authorize_are_the_untracked_inference_paths() {
         assert!(!tracked_inference_path("/attestation"));
         assert!(!tracked_inference_path("/attestation?nonce=ab12"));
         assert!(!tracked_inference_path("/attestation/"));
         // The engine passes resolved candidate paths, base prefix included.
         assert!(!tracked_inference_path("/v1/attestation"));
         assert!(!tracked_inference_path("/v1/attestation/evidence"));
+        // §2.2 hard MUST: client context never rides the authorize route.
+        assert!(!tracked_inference_path("/internal/gateway/authorize"));
+        assert!(!tracked_inference_path("/v1/internal/gateway/authorize"));
+        assert!(!tracked_inference_path("/v1/internal/gateway/authorize/"));
         assert!(tracked_inference_path("/chat/completions"));
         assert!(tracked_inference_path("/v1/chat/completions"));
         assert!(tracked_inference_path("/responses"));
@@ -953,6 +991,13 @@ mod tests {
             ErrorClass::Tls
         );
         assert_eq!(
+            classify_chain(
+                &probed("received corrupt message of type InvalidContentType"),
+                true
+            ),
+            ErrorClass::Tls
+        );
+        assert_eq!(
             classify_chain(&probed("proxy authentication required"), false),
             ErrorClass::ProxyError
         );
@@ -1035,6 +1080,27 @@ mod tests {
             .expect_err("the deadline is shorter than the delay");
         assert!(error.is_timeout());
         assert_eq!(classify_transport_error(&error), ErrorClass::ReadTimeout);
+    }
+
+    #[tokio::test]
+    async fn a_proxy_connect_failure_pins_to_its_socket_class() {
+        // Proxy provenance is best-effort (documented boundary): reqwest's
+        // failure to reach a dead proxy surfaces the underlying socket
+        // error, so the pinned class is connect_refused, not proxy_error.
+        // Nothing leaves the machine — the proxy connection fails first.
+        let dead_port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        let error = reqwest::Client::builder()
+            .proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{dead_port}")).unwrap())
+            .build()
+            .unwrap()
+            .get("http://api.trustedrouter.com/v1/models")
+            .send()
+            .await
+            .expect_err("the proxy port is dead");
+        assert_eq!(classify_transport_error(&error), ErrorClass::ConnectRefused);
     }
 
     #[tokio::test]

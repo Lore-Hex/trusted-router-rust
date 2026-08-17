@@ -41,3 +41,14 @@ and Java SDKs. The table is a release gate, not a roadmap claim.
   channel is deliberately deferred until the Python contract has been live and
   calibrated (contract v1 rollout order); `credential_free_json` is the
   reserved out-of-engine attach point for it.
+- reqwest follows cross-origin redirects and strips only its sensitive set
+  (`Authorization`, cookies, proxy credentials); `x-tr-client` — like
+  `idempotency-key` and the workspace header — is forwarded to the redirect
+  target, bypassing telemetry host scoping. Redirect hardening for the
+  SDK-owned client is tracked in
+  <https://github.com/Lore-Hex/trusted-router-rust/issues/20>. Relatedly, an
+  injected reqwest client's `default_headers` merge inside reqwest after the
+  request leaves the SDK: an occupied `x-tr-client` slot (any attempt with a
+  live recorder value) blocks the merge; a deliberately vacant slot on a
+  suppressed attempt cannot, so a caller-configured default rides on the
+  caller's own responsibility.

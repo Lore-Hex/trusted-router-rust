@@ -34,14 +34,7 @@ impl Client {
             headers.insert(parse_header_name(name)?, parse_header_value(value)?);
         }
         // One bounded, content-free reliability header per attempt (§3.2).
-        // The recorder returns `None` for custom hosts, out-of-bounds attempt
-        // indices, and out-of-grammar values, and an unparseable value is
-        // silently skipped — telemetry may never fail a request (§2.2).
-        if let Some(value) = telemetry.and_then(RequestRecorder::header_value) {
-            if let Ok(value) = HeaderValue::from_str(&value) {
-                headers.insert(HeaderName::from_static("x-tr-client"), value);
-            }
-        }
+        enforce_reserved_telemetry_header(&mut headers, telemetry);
         headers.insert(
             reqwest::header::USER_AGENT,
             parse_header_value(&format!(
@@ -92,6 +85,37 @@ pub(crate) fn ensure_idempotency_key(mut options: CallOptions) -> CallOptions {
         options.idempotency_key = Some(format!("tr-req-{}", uuid::Uuid::new_v4().simple()));
     }
     options
+}
+
+/// The single owner of the `x-tr-client` slot in a header map: any existing
+/// value is removed, and the recorder's value — when there is one — is
+/// inserted. The recorder returns `None` for custom hosts, out-of-bounds
+/// attempt indices, and out-of-grammar values, and an unparseable value is
+/// silently skipped — telemetry may never fail a request (§2.2).
+///
+/// Called twice per attempt: on the SDK-assembled map in
+/// [`Client::request_headers`], and again by the engine on the BUILT
+/// [`reqwest::Request`]'s map — the last point the SDK sees the headers.
+/// That second pass means an `x-tr-client` sneaking in through any
+/// SDK-visible layer is replaced or dropped. One layer remains structurally
+/// out of reach: reqwest merges an injected client's `default_headers`
+/// inside its own `execute_request` (insert-if-vacant), after the request
+/// leaves the SDK. An occupied slot — every attempt with a live recorder
+/// value — blocks that merge; a deliberately vacant slot on a suppressed
+/// attempt cannot, so a caller who configured `x-tr-client` as a default on
+/// their injected reqwest client ships their own value on suppressed
+/// attempts. That is the caller's client configuration, pinned as a
+/// documented boundary in `tests/telemetry_header.rs`.
+pub(crate) fn enforce_reserved_telemetry_header(
+    headers: &mut HeaderMap,
+    telemetry: Option<&RequestRecorder>,
+) {
+    headers.remove("x-tr-client");
+    if let Some(value) = telemetry.and_then(RequestRecorder::header_value) {
+        if let Ok(value) = HeaderValue::from_str(&value) {
+            headers.insert(HeaderName::from_static("x-tr-client"), value);
+        }
+    }
 }
 
 fn parse_header_name(value: &str) -> Result<HeaderName> {

@@ -132,14 +132,17 @@ impl Client {
                 }
                 Ok(response) => {
                     let status = response.status();
-                    if let Some(recorder) = recorder.as_mut() {
-                        recorder.on_response(status.as_u16());
-                    }
                     let headers = response.headers().clone();
                     // Drain the failure body before deciding anything: the
                     // classified error needs the payload, and a read failure
                     // must surface as itself, not as a retry decision.
                     let bytes = self.read_response(response, options).await?;
+                    // Recorded AFTER the drain so pm covers the whole
+                    // previous attempt for buffered HTTP errors, matching the
+                    // buffered Python driver's measurement.
+                    if let Some(recorder) = recorder.as_mut() {
+                        recorder.on_response(status.as_u16());
+                    }
                     let payload = serde_json::from_slice::<Value>(&bytes).ok();
                     FailureDisposition::from_http(status.as_u16(), &headers, payload)
                 }
@@ -189,12 +192,33 @@ impl Client {
         recorder: Option<&mut RequestRecorder>,
     ) -> Result<reqwest::Response> {
         let headers = self.request_headers(options, recorder.as_deref())?;
-        let mut request = self.http.request(method, url).headers(headers);
+        let mut builder = self.http.request(method, url).headers(headers);
         if let Some(body) = body {
-            request = request.json(&body);
+            builder = builder.json(&body);
         }
+        let mut request = match builder.build() {
+            Ok(request) => request,
+            Err(error) => {
+                if let Some(recorder) = recorder {
+                    recorder.on_transport_error(
+                        telemetry::classify_transport_error(&error),
+                        error.is_timeout(),
+                    );
+                }
+                return Err(policy::map_reqwest_error(error));
+            }
+        };
+        // Re-enforce the reservation on the BUILT request — the last point
+        // the SDK sees the header map. An occupied slot also blocks an
+        // injected reqwest client's `default_headers` from supplying a stale
+        // `x-tr-client` at send time (reqwest merges defaults insert-if-
+        // vacant inside its own execute path, past SDK reach).
+        crate::transport::headers::enforce_reserved_telemetry_header(
+            request.headers_mut(),
+            recorder.as_deref(),
+        );
         let deadline = options.timeout.or(self.timeout);
-        match Self::send_raw(request, deadline).await {
+        match Self::send_raw(&self.http, request, deadline).await {
             Ok(response) => Ok(response),
             Err(failure) => {
                 // Classify while the typed error still exists; the map below
@@ -226,17 +250,18 @@ impl Client {
     /// failure. `Duration::ZERO` (like no configured deadline) disables the
     /// SDK timeout, preserving the documented `timeout` contract.
     async fn send_raw(
-        request: reqwest::RequestBuilder,
+        http: &reqwest::Client,
+        request: reqwest::Request,
         deadline: Option<Duration>,
     ) -> std::result::Result<reqwest::Response, SendFailure> {
         match deadline {
             Some(duration) if duration != Duration::ZERO => {
-                match timeout(duration, request.send()).await {
+                match timeout(duration, http.execute(request)).await {
                     Ok(sent) => sent.map_err(SendFailure::Transport),
                     Err(_) => Err(SendFailure::Deadline),
                 }
             }
-            _ => request.send().await.map_err(SendFailure::Transport),
+            _ => http.execute(request).await.map_err(SendFailure::Transport),
         }
     }
 
@@ -564,6 +589,114 @@ mod candidate_walk_tests {
         assert_eq!(field(&pairs, "a"), "1");
         assert_eq!(field(&pairs, "po"), "transport_error");
         assert_eq!(field(&pairs, "pc"), "connect_refused");
+        assert_eq!(field(&pairs, "ph"), "apex");
+        assert_eq!(field(&pairs, "fo"), "1");
+    }
+
+    #[tokio::test]
+    async fn a_tls_failure_carries_its_class_to_the_next_attempt() {
+        // Attempt 0 speaks HTTPS to a plain-TCP socket that answers with
+        // HTTP bytes: rustls rejects the non-TLS reply and the class must
+        // survive into the alias attempt's header.
+        let up = MockServer::start().await;
+        Mock::given(method_matcher("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+            .mount(&up)
+            .await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let tls_port = listener.local_addr().unwrap().port();
+        let garbage_server = tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let _ = tokio::io::AsyncWriteExt::write_all(
+                    &mut socket,
+                    b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n",
+                )
+                .await;
+            }
+        });
+        let mut client = Client::builder()
+            .api_key("sk-test")
+            .max_retries(2)
+            .telemetry(true)
+            .http_client(loopback_resolver())
+            .build()
+            .unwrap();
+        client.api_base_url = Url::parse(&format!("https://{APEX_HOST}:{tls_port}/v1/")).unwrap();
+        client.api_base_urls = vec![client.api_base_url.clone(), base(ALLY_HOST, &up)];
+
+        client
+            .request_bytes(
+                Plane::Inference,
+                Method::POST,
+                "/chat/completions",
+                Some(json!({"model": "trustedrouter/auto"})),
+                CallOptions::default(),
+            )
+            .await
+            .expect("the call should succeed on the second candidate");
+        garbage_server.abort();
+
+        let up_requests = up.received_requests().await.unwrap();
+        assert_eq!(up_requests.len(), 1);
+        let retry = tr_client_header(&up_requests[0]).expect("alias attempt sends the header");
+        let pairs = parsed_retry_header(&retry);
+        assert_eq!(field(&pairs, "po"), "transport_error");
+        assert_eq!(field(&pairs, "pc"), "tls");
+        assert_eq!(field(&pairs, "ph"), "apex");
+        assert_eq!(field(&pairs, "fo"), "1");
+    }
+
+    #[tokio::test]
+    async fn a_connection_reset_carries_its_class_to_the_next_attempt() {
+        // Attempt 0 lands on a socket that reads the request and then
+        // hard-resets (SO_LINGER 0 close sends RST, not FIN).
+        let up = MockServer::start().await;
+        Mock::given(method_matcher("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+            .mount(&up)
+            .await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let reset_port = listener.local_addr().unwrap().port();
+        let reset_server = tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buffer = [0_u8; 2048];
+                let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buffer).await;
+                // Deprecated because a non-zero linger blocks the thread on
+                // drop; a ZERO linger is the opposite — close() sends an
+                // immediate RST, which is exactly the failure being staged.
+                #[allow(deprecated)]
+                let _ = socket.set_linger(Some(std::time::Duration::ZERO));
+                drop(socket);
+            }
+        });
+        let mut client = Client::builder()
+            .api_key("sk-test")
+            .max_retries(2)
+            .telemetry(true)
+            .http_client(loopback_resolver())
+            .build()
+            .unwrap();
+        client.api_base_url = Url::parse(&format!("http://{APEX_HOST}:{reset_port}/v1/")).unwrap();
+        client.api_base_urls = vec![client.api_base_url.clone(), base(ALLY_HOST, &up)];
+
+        client
+            .request_bytes(
+                Plane::Inference,
+                Method::POST,
+                "/chat/completions",
+                Some(json!({"model": "trustedrouter/auto"})),
+                CallOptions::default(),
+            )
+            .await
+            .expect("the call should succeed on the second candidate");
+        reset_server.abort();
+
+        let up_requests = up.received_requests().await.unwrap();
+        assert_eq!(up_requests.len(), 1);
+        let retry = tr_client_header(&up_requests[0]).expect("alias attempt sends the header");
+        let pairs = parsed_retry_header(&retry);
+        assert_eq!(field(&pairs, "po"), "transport_error");
+        assert_eq!(field(&pairs, "pc"), "reset");
         assert_eq!(field(&pairs, "ph"), "apex");
         assert_eq!(field(&pairs, "fo"), "1");
     }

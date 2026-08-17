@@ -372,6 +372,157 @@ async fn dot_segments_cannot_dodge_the_attestation_exclusion() {
 }
 
 #[tokio::test]
+async fn an_injected_default_reserved_header_is_replaced_when_telemetry_is_active() {
+    // The reservation is re-enforced on the BUILT request, so the slot is
+    // occupied by the SDK's value and reqwest's insert-if-vacant defaults
+    // merge cannot substitute a stale caller value.
+    let server = MockServer::start().await;
+    mock_chat(&server).await;
+    let mut defaults = reqwest::header::HeaderMap::new();
+    defaults.insert(
+        "x-tr-client",
+        reqwest::header::HeaderValue::from_static("v=9;a=9;s=9"),
+    );
+    let http = reqwest::Client::builder()
+        .resolve(APEX_HOST, std::net::SocketAddr::from(([127, 0, 0, 1], 0)))
+        .default_headers(defaults)
+        .build()
+        .unwrap();
+    let client = Client::builder()
+        .api_key("sk-test")
+        .api_base_url(format!("http://{APEX_HOST}:{}/v1", server.address().port()))
+        .telemetry(true)
+        .max_retries(0)
+        .http_client(http)
+        .build()
+        .unwrap();
+    client
+        .chat_completions(ChatRequest::user("trustedrouter/auto", "ping"))
+        .await
+        .unwrap();
+    assert_eq!(
+        header_values(&server, "x-tr-client").await,
+        vec![Some("v=1;a=0;s=0".to_owned())]
+    );
+}
+
+#[tokio::test]
+async fn an_injected_default_reserved_header_on_suppressed_attempts_is_a_documented_boundary() {
+    // reqwest merges an injected client's default_headers INSERT-IF-VACANT
+    // inside its own execute path (reqwest 0.12 async_impl/client.rs,
+    // execute_request), after the request has left the SDK. A suppressed
+    // attempt deliberately leaves the slot vacant, so a caller who
+    // configured x-tr-client as a client-wide default on their own injected
+    // reqwest client ships that value themselves — the SDK cannot reach
+    // past the merge without occupying the slot, i.e. sending bytes it must
+    // not send. This canary pins the boundary: if reqwest's merge semantics
+    // change or a per-request lever appears, this test fails and the
+    // reservation should be extended.
+    let server = MockServer::start().await;
+    mock_chat(&server).await;
+    let mut defaults = reqwest::header::HeaderMap::new();
+    defaults.insert(
+        "x-tr-client",
+        reqwest::header::HeaderValue::from_static("v=9;a=9;s=9"),
+    );
+    let http = reqwest::Client::builder()
+        .resolve(APEX_HOST, std::net::SocketAddr::from(([127, 0, 0, 1], 0)))
+        .default_headers(defaults)
+        .build()
+        .unwrap();
+    let client = Client::builder()
+        .api_key("sk-test")
+        .api_base_url(format!("http://{APEX_HOST}:{}/v1", server.address().port()))
+        .telemetry(false)
+        .max_retries(0)
+        .http_client(http)
+        .build()
+        .unwrap();
+    client
+        .chat_completions(ChatRequest::user("trustedrouter/auto", "ping"))
+        .await
+        .unwrap();
+    assert_eq!(
+        header_values(&server, "x-tr-client").await,
+        vec![Some("v=9;a=9;s=9".to_owned())],
+        "if this starts failing, reqwest changed and the reservation can now be completed"
+    );
+}
+
+#[tokio::test]
+async fn dot_segments_cannot_dodge_the_authorize_exclusion() {
+    // §2.2 hard MUST: client context is never sent on the authorize route,
+    // whatever plane the caller labels the request with and however the
+    // path is spelled.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/internal/gateway/authorize"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok": true})))
+        .mount(&server)
+        .await;
+    apex_client(&server, Some(true))
+        .request::<serde_json::Value>(
+            Plane::Inference,
+            Method::POST,
+            "/x/../internal/gateway/authorize",
+            Some(serde_json::json!({})),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(header_values(&server, "x-tr-client").await, vec![None]);
+}
+
+#[tokio::test]
+async fn a_forced_retry_after_a_sub_400_response_reports_po_none() {
+    // A 302 without a Location header passes through reqwest untouched, and
+    // x-should-retry: true forces the engine to retry it in place. §3.2's po
+    // vocabulary has no "ok", so the retry header degrades to po=none;
+    // pc=none instead of a value the enclave would drop the header for.
+    let server = MockServer::start().await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(move |_request: &Request| {
+            if observed.fetch_add(1, Ordering::SeqCst) == 0 {
+                ResponseTemplate::new(302)
+                    .insert_header("x-should-retry", "true")
+                    .set_body_json(serde_json::json!({}))
+            } else {
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "chat_1",
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}}]
+                }))
+            }
+        })
+        .mount(&server)
+        .await;
+    let client = Client::builder()
+        .api_key("sk-test")
+        .api_base_url(format!("http://{APEX_HOST}:{}/v1", server.address().port()))
+        .max_retries(1)
+        .telemetry(true)
+        .http_client(resolving_http())
+        .build()
+        .unwrap();
+    client
+        .chat_completions(ChatRequest::user("trustedrouter/auto", "ping"))
+        .await
+        .unwrap();
+    let headers = header_values(&server, "x-tr-client").await;
+    assert_eq!(headers[0].as_deref(), Some("v=1;a=0;s=0"));
+    let retry = headers[1]
+        .as_deref()
+        .expect("retry attempt sends the header");
+    assert!(
+        retry.starts_with("v=1;a=1;po=none;pc=none;ph=apex;pm="),
+        "{retry}"
+    );
+    assert!(retry.ends_with(";s=0;fo=0"), "{retry}");
+}
+
+#[tokio::test]
 async fn a_saturated_single_candidate_retry_reports_no_failover() {
     // One candidate, a 503, then success on the same host: the cursor's
     // advance saturates, so the retry header must say fo=0 with ph=apex.
