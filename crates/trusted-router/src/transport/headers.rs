@@ -8,14 +8,39 @@
 //! `tests/client_contract.rs`).
 
 use crate::client::{CallOptions, Client};
+use crate::telemetry::RequestRecorder;
 use crate::{Error, Result};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 impl Client {
-    pub(crate) fn request_headers(&self, options: &CallOptions) -> Result<HeaderMap> {
+    pub(crate) fn request_headers(
+        &self,
+        options: &CallOptions,
+        telemetry: Option<&RequestRecorder>,
+    ) -> Result<HeaderMap> {
         let mut headers = HeaderMap::new();
         for (name, value) in self.headers.iter().chain(options.headers.iter()) {
+            // The reserved telemetry header is SDK-owned UNCONDITIONALLY
+            // (client telemetry contract v1 §3.2): a caller-supplied
+            // `x-tr-client` is dropped before parsing, on every plane and
+            // regardless of opt-out, so a forged value can neither ride the
+            // wire as telemetry nor fail the request by being unparseable.
+            // (trusted-router-py forwards a caller value when telemetry is
+            // off — an accident of its header plumbing, not contract, and
+            // deliberately not replicated.)
+            if name.eq_ignore_ascii_case("x-tr-client") {
+                continue;
+            }
             headers.insert(parse_header_name(name)?, parse_header_value(value)?);
+        }
+        // One bounded, content-free reliability header per attempt (§3.2).
+        // The recorder returns `None` for custom hosts, out-of-bounds attempt
+        // indices, and out-of-grammar values, and an unparseable value is
+        // silently skipped — telemetry may never fail a request (§2.2).
+        if let Some(value) = telemetry.and_then(RequestRecorder::header_value) {
+            if let Ok(value) = HeaderValue::from_str(&value) {
+                headers.insert(HeaderName::from_static("x-tr-client"), value);
+            }
         }
         headers.insert(
             reqwest::header::USER_AGENT,

@@ -23,6 +23,7 @@ and Java SDKs. The table is a release gate, not a roadmap claim.
 | Error attribution | layer, source, provider, request ID, Retry-After | Complete |
 | Reliability | retry, jitter, timeouts, idempotency, apex failover | Complete |
 | Attestation | signature and complete production claim policy | Complete |
+| Client telemetry | `x-tr-client` header channel, contract v1 | Complete |
 | Blocking Rust | endpoint and callback facade | Complete |
 | C/C++ | stable C ABI, JSON calls, Chat, Responses, SSE callback | Complete |
 
@@ -36,3 +37,7 @@ and Java SDKs. The table is a release gate, not a roadmap claim.
   response struct. This keeps the ABI stable as API response fields expand.
 - Per-region host construction is not exposed. `api.trustedrouter.com` is the
   global load balancer and retries re-request the canonical attested endpoint.
+- Client telemetry sends the per-attempt `x-tr-client` header only. The beacon
+  channel is deliberately deferred until the Python contract has been live and
+  calibrated (contract v1 rollout order); `credential_free_json` is the
+  reserved out-of-engine attach point for it.

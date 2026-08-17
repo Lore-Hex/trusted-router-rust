@@ -32,6 +32,66 @@ pub const DEFAULT_ORCHESTRATION_TIMEOUT: Duration = Duration::from_secs(600);
 /// Number of retries after the initial request.
 pub const DEFAULT_MAX_RETRIES: usize = 2;
 
+/// Client-telemetry contract schema version implemented by this SDK.
+///
+/// Pinned by the cross-SDK parity tests in `tests/telemetry_header.rs`; the
+/// value lists below are the closed contract-v1 vocabularies and must not
+/// change without a coordinated release across every `TrustedRouter` SDK.
+pub const TELEMETRY_SCHEMA_VERSION: u32 = 1;
+/// Control-plane ingest path for the telemetry beacon channel. Reserved: the
+/// Rust SDK implements the header channel only; no beacon is sent.
+pub const DEFAULT_TELEMETRY_PATH: &str = "/client-events";
+/// Closed telemetry host vocabulary (contract v1 §5.2).
+pub const TELEMETRY_HOSTS: [&str; 8] = [
+    "apex",
+    "ally",
+    "uptime",
+    "us_central1",
+    "us_east4",
+    "europe_west4",
+    "control",
+    "custom",
+];
+/// Closed telemetry endpoint vocabulary (contract v1 §5.2).
+pub const TELEMETRY_ENDPOINTS: [&str; 10] = [
+    "chat_completions",
+    "messages",
+    "responses",
+    "embeddings",
+    "images",
+    "videos",
+    "models",
+    "fusion",
+    "control_other",
+    "inference_other",
+];
+/// Closed telemetry per-attempt outcome vocabulary (contract v1 §5.2).
+pub const TELEMETRY_OUTCOMES: [&str; 6] = [
+    "ok",
+    "http_error",
+    "transport_error",
+    "timeout",
+    "stream_broken",
+    "aborted",
+];
+/// Closed telemetry transport-error class vocabulary (contract v1 §5.2).
+pub const TELEMETRY_ERROR_CLASSES: [&str; 14] = [
+    "dns",
+    "tls",
+    "connect_refused",
+    "connect_timeout",
+    "connect_error",
+    "read_timeout",
+    "write_timeout",
+    "pool_timeout",
+    "protocol_error",
+    "reset",
+    "io_error",
+    "proxy_error",
+    "stream_stalled",
+    "unknown",
+];
+
 /// Automatic non-orchestration model routing.
 pub const AUTO_MODEL: &str = "trustedrouter/auto";
 /// Lowest-latency healthy routing pool.
