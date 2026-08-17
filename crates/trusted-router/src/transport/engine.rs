@@ -299,8 +299,11 @@ impl Client {
 #[cfg(test)]
 mod candidate_walk_tests {
     use crate::client::{CallOptions, Client, Plane};
+    use crate::telemetry::{self, ErrorClass};
     use http::Method;
     use serde_json::json;
+    use std::time::Duration;
+    use tokio::time::sleep;
     use url::Url;
     use wiremock::matchers::method as method_matcher;
     use wiremock::{Mock, MockServer, Request, ResponseTemplate};
@@ -593,11 +596,39 @@ mod candidate_walk_tests {
         assert_eq!(field(&pairs, "fo"), "1");
     }
 
+    /// Formats an error's whole `source` chain with each link's io kind — the
+    /// evidence a per-platform classification divergence needs, printed by
+    /// the assertions below so a CI failure on a machine we cannot reproduce
+    /// locally still says WHY.
+    fn error_chain(error: &(dyn std::error::Error + 'static)) -> String {
+        let mut chain = Vec::new();
+        let mut current = Some(error);
+        while let Some(link) = current {
+            let kind = link
+                .downcast_ref::<std::io::Error>()
+                .map(|io| format!("{:?}", io.kind()));
+            chain.push(format!("{{{link}}} io_kind={kind:?}"));
+            current = link.source();
+        }
+        chain.join(" -> ")
+    }
+
     #[tokio::test]
     async fn a_tls_failure_carries_its_class_to_the_next_attempt() {
-        // Attempt 0 speaks HTTPS to a plain-TCP socket that answers with
-        // HTTP bytes: rustls rejects the non-TLS reply and the class must
-        // survive into the alias attempt's header.
+        // Attempt 0 speaks HTTPS to a plain-TCP socket that answers with HTTP
+        // bytes: rustls rejects the non-TLS record and the class must survive
+        // into the alias attempt's header.
+        //
+        // The listener MUST read the ClientHello before replying. Closing a
+        // socket that still holds unread inbound data makes the OS send RST
+        // instead of FIN, and an RST discards the queued outbound bytes — so
+        // a server that never reads hands rustls an aborted connection with
+        // no TLS marker rather than a corrupt record. That is exactly how the
+        // first version of this test passed on Linux/macOS (which happened to
+        // deliver the plaintext first) and reported connect_error on Windows.
+        // The TLS stack is identical on all three: this crate pins
+        // rustls-tls-webpki-roots with default-features = false, so there is
+        // no SChannel/native-tls path anywhere.
         let up = MockServer::start().await;
         Mock::given(method_matcher("POST"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
@@ -607,13 +638,36 @@ mod candidate_walk_tests {
         let tls_port = listener.local_addr().unwrap().port();
         let garbage_server = tokio::spawn(async move {
             while let Ok((mut socket, _)) = listener.accept().await {
-                let _ = tokio::io::AsyncWriteExt::write_all(
-                    &mut socket,
-                    b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n",
-                )
-                .await;
+                tokio::spawn(async move {
+                    // Drain the ClientHello first, then answer in plaintext
+                    // and let the record land before the socket closes.
+                    let mut buffer = [0_u8; 4096];
+                    let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buffer).await;
+                    let _ = tokio::io::AsyncWriteExt::write_all(
+                        &mut socket,
+                        b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n",
+                    )
+                    .await;
+                    let _ = tokio::io::AsyncWriteExt::flush(&mut socket).await;
+                    sleep(Duration::from_millis(250)).await;
+                });
             }
         });
+
+        // Direct probe first: it pins the classification per platform and
+        // prints the actual chain when a platform disagrees.
+        let probe = loopback_resolver()
+            .get(format!("https://{APEX_HOST}:{tls_port}/v1/models"))
+            .send()
+            .await
+            .expect_err("plaintext behind https must fail");
+        assert_eq!(
+            telemetry::classify_transport_error(&probe),
+            ErrorClass::Tls,
+            "plaintext-behind-TLS classified from chain: {}",
+            error_chain(&probe)
+        );
+
         let mut client = Client::builder()
             .api_key("sk-test")
             .max_retries(2)

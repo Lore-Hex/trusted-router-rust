@@ -52,3 +52,12 @@ and Java SDKs. The table is a release gate, not a roadmap claim.
   live recorder value) blocks the merge; a deliberately vacant slot on a
   suppressed attempt cannot, so a caller-configured default rides on the
   caller's own responsibility.
+- Telemetry `error_class` for TLS failures is only as specific as the error the
+  TLS stack surfaces, and that varies by platform even with one stack (this
+  crate pins rustls on every target). A peer whose plaintext record actually
+  reaches rustls yields `tls`; a peer that resets mid-handshake — including the
+  RST-instead-of-FIN a socket close with unread inbound data produces on
+  Windows — yields `connect_error`, because no TLS marker exists to read. Both
+  are TR-fault under the methodology, so availability arithmetic is unaffected,
+  but per-class histograms for TLS failures are not directly comparable across
+  client platforms. Server-side class comparisons should account for that.
