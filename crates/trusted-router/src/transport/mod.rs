@@ -88,7 +88,9 @@ impl Client {
         body: Option<Value>,
         options: CallOptions,
     ) -> Result<Vec<u8>> {
-        let response = self.execute(plane, method, path, body, &options).await?;
+        let response = self
+            .execute(plane, method, path, body, &options, false)
+            .await?;
         let bytes = self.read_response(response, &options).await?;
         Ok(bytes.to_vec())
     }
@@ -103,7 +105,7 @@ impl Client {
         body: Value,
         options: CallOptions,
     ) -> Result<reqwest::Response> {
-        self.execute(plane, method, path, Some(body), &options)
+        self.execute(plane, method, path, Some(body), &options, true)
             .await
     }
 

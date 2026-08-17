@@ -55,6 +55,7 @@ pub struct ClientBuilder {
     pub(crate) timeout: Option<Duration>,
     pub(crate) max_retries: usize,
     pub(crate) regional_failover: bool,
+    pub(crate) telemetry: Option<bool>,
     pub(crate) headers: BTreeMap<String, String>,
     pub(crate) http_client: Option<reqwest::Client>,
 }
@@ -69,6 +70,7 @@ impl Default for ClientBuilder {
             timeout: Some(DEFAULT_REQUEST_TIMEOUT),
             max_retries: DEFAULT_MAX_RETRIES,
             regional_failover: true,
+            telemetry: None,
             headers: BTreeMap::new(),
             http_client: None,
         }
@@ -126,6 +128,23 @@ impl ClientBuilder {
         self
     }
 
+    /// Enables or disables client-observed reliability telemetry explicitly.
+    ///
+    /// Telemetry is the content-free `x-tr-client` reliability header
+    /// (client-telemetry contract v1): closed enums and bounded counters
+    /// only, no prompt or completion data, no free text. Precedence when this
+    /// option is not set: `TRUSTEDROUTER_TELEMETRY` (`0`/`false`/`off`/`no`
+    /// disable, `1`/`true`/`on`/`yes` enable), then `DO_NOT_TRACK=1`
+    /// disables, then the default — on only when the inference base URL is a
+    /// known `TrustedRouter` host AND the control base is the HTTPS
+    /// `trustedrouter.com` plane. Custom base URLs never send the header,
+    /// and control-plane calls are never traced, regardless of this setting.
+    /// Opting out never changes the `User-Agent`.
+    pub fn telemetry(mut self, value: bool) -> Self {
+        self.telemetry = Some(value);
+        self
+    }
+
     /// Adds a default header.
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.insert(name.into(), value.into());
@@ -142,6 +161,12 @@ impl ClientBuilder {
     pub fn build(self) -> Result<Client> {
         let api_base_url = parse_base_url(&self.api_base_url, "inference")?;
         let control_base_url = parse_base_url(&self.control_base_url, "control")?;
+        let telemetry = crate::telemetry::resolve_telemetry_enabled(
+            self.telemetry,
+            &self.api_base_url,
+            &self.control_base_url,
+            &|name| std::env::var(name).ok(),
+        );
         let http = match self.http_client {
             Some(client) => client,
             None => reqwest::Client::builder()
@@ -161,6 +186,7 @@ impl ClientBuilder {
             workspace_id: self.workspace_id,
             timeout: self.timeout,
             max_retries: self.max_retries,
+            telemetry,
             headers: self.headers,
             http,
         })
@@ -181,6 +207,9 @@ pub struct Client {
     pub(crate) workspace_id: Option<String>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) max_retries: usize,
+    /// Resolved once at build time (§6.3 precedence); `false` suppresses the
+    /// `x-tr-client` header, never the `User-Agent`.
+    pub(crate) telemetry: bool,
     pub(crate) headers: BTreeMap<String, String>,
     pub(crate) http: reqwest::Client,
 }

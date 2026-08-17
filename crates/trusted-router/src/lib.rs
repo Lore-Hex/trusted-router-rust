@@ -11,6 +11,7 @@ mod constants;
 mod error;
 mod oauth;
 mod sse;
+mod telemetry;
 mod tools;
 mod transport;
 mod types;

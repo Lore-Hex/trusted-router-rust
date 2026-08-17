@@ -23,6 +23,7 @@ and Java SDKs. The table is a release gate, not a roadmap claim.
 | Error attribution | layer, source, provider, request ID, Retry-After | Complete |
 | Reliability | retry, jitter, timeouts, idempotency, apex failover | Complete |
 | Attestation | signature and complete production claim policy | Complete |
+| Client telemetry | `x-tr-client` header channel, contract v1 | Complete |
 | Blocking Rust | endpoint and callback facade | Complete |
 | C/C++ | stable C ABI, JSON calls, Chat, Responses, SSE callback | Complete |
 
@@ -36,3 +37,27 @@ and Java SDKs. The table is a release gate, not a roadmap claim.
   response struct. This keeps the ABI stable as API response fields expand.
 - Per-region host construction is not exposed. `api.trustedrouter.com` is the
   global load balancer and retries re-request the canonical attested endpoint.
+- Client telemetry sends the per-attempt `x-tr-client` header only. The beacon
+  channel is deliberately deferred until the Python contract has been live and
+  calibrated (contract v1 rollout order); `credential_free_json` is the
+  reserved out-of-engine attach point for it.
+- reqwest follows cross-origin redirects and strips only its sensitive set
+  (`Authorization`, cookies, proxy credentials); `x-tr-client` — like
+  `idempotency-key` and the workspace header — is forwarded to the redirect
+  target, bypassing telemetry host scoping. Redirect hardening for the
+  SDK-owned client is tracked in
+  <https://github.com/Lore-Hex/trusted-router-rust/issues/20>. Relatedly, an
+  injected reqwest client's `default_headers` merge inside reqwest after the
+  request leaves the SDK: an occupied `x-tr-client` slot (any attempt with a
+  live recorder value) blocks the merge; a deliberately vacant slot on a
+  suppressed attempt cannot, so a caller-configured default rides on the
+  caller's own responsibility.
+- Telemetry `error_class` for TLS failures is only as specific as the error the
+  TLS stack surfaces, and that varies by platform even with one stack (this
+  crate pins rustls on every target). A peer whose plaintext record actually
+  reaches rustls yields `tls`; a peer that resets mid-handshake — including the
+  RST-instead-of-FIN a socket close with unread inbound data produces on
+  Windows — yields `connect_error`, because no TLS marker exists to read. Both
+  are TR-fault under the methodology, so availability arithmetic is unaffected,
+  but per-class histograms for TLS failures are not directly comparable across
+  client platforms. Server-side class comparisons should account for that.
