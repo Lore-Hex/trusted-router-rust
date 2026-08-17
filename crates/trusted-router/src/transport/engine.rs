@@ -302,8 +302,6 @@ mod candidate_walk_tests {
     use crate::telemetry::{self, ErrorClass};
     use http::Method;
     use serde_json::json;
-    use std::time::Duration;
-    use tokio::time::sleep;
     use url::Url;
     use wiremock::matchers::method as method_matcher;
     use wiremock::{Mock, MockServer, Request, ResponseTemplate};
@@ -639,17 +637,49 @@ mod candidate_walk_tests {
         let garbage_server = tokio::spawn(async move {
             while let Ok((mut socket, _)) = listener.accept().await {
                 tokio::spawn(async move {
-                    // Drain the ClientHello first, then answer in plaintext
-                    // and let the record land before the socket closes.
+                    // Consume the WHOLE ClientHello, answer in plaintext, then
+                    // keep reading until the peer closes. A single read can
+                    // return a partial record, and closing a socket that still
+                    // holds unread inbound data sends RST — which discards the
+                    // queued plaintext before rustls can read it, leaving no
+                    // TLS marker and an honest connect_error. Draining to EOF
+                    // makes the close a FIN and removes the timing dependence
+                    // entirely.
                     let mut buffer = [0_u8; 4096];
-                    let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buffer).await;
+                    let mut seen = 0;
+                    while seen < buffer.len() {
+                        let Ok(read) =
+                            tokio::io::AsyncReadExt::read(&mut socket, &mut buffer[seen..]).await
+                        else {
+                            break;
+                        };
+                        if read == 0 {
+                            break;
+                        }
+                        seen += read;
+                        // A TLS record is a 5-byte header plus its declared
+                        // payload length; stop once the first one is complete.
+                        if seen >= 5 {
+                            let declared =
+                                5 + usize::from(u16::from_be_bytes([buffer[3], buffer[4]]));
+                            if seen >= declared {
+                                break;
+                            }
+                        }
+                    }
                     let _ = tokio::io::AsyncWriteExt::write_all(
                         &mut socket,
                         b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n",
                     )
                     .await;
                     let _ = tokio::io::AsyncWriteExt::flush(&mut socket).await;
-                    sleep(Duration::from_millis(250)).await;
+                    let mut sink = [0_u8; 1024];
+                    while let Ok(read) = tokio::io::AsyncReadExt::read(&mut socket, &mut sink).await
+                    {
+                        if read == 0 {
+                            break;
+                        }
+                    }
                 });
             }
         });

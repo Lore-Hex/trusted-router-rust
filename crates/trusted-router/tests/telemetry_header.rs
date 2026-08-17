@@ -474,6 +474,62 @@ async fn dot_segments_cannot_dodge_the_authorize_exclusion() {
 }
 
 #[tokio::test]
+async fn percent_encoded_spellings_cannot_dodge_the_authorize_exclusion() {
+    // §2.2 is a hard MUST, so the exclusion has to survive every spelling of
+    // the route that still reaches it — not just the dot-segment one that
+    // Url::join happens to normalise. `Url::path` keeps percent escapes, so a
+    // literal-text check let `%61uthorize` reach the wire with a header while
+    // the gateway's request parser decoded it straight back to authorize.
+    for spelling in [
+        "/internal/gateway/%61uthorize",
+        "/internal/gateway/authoriz%65",
+        "/INTERNAL/GATEWAY/AUTHORIZE",
+        "/internal//gateway/authorize",
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok": true})))
+            .mount(&server)
+            .await;
+        apex_client(&server, Some(true))
+            .request::<serde_json::Value>(
+                Plane::Inference,
+                Method::POST,
+                spelling,
+                Some(serde_json::json!({})),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            header_values(&server, "x-tr-client").await,
+            vec![None],
+            "authorize spelled {spelling} must never carry client context"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_percent_encoded_attestation_path_is_never_traced() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok": true})))
+        .mount(&server)
+        .await;
+    apex_client(&server, Some(true))
+        .request::<serde_json::Value>(
+            Plane::Inference,
+            Method::GET,
+            "/%61ttestation",
+            None,
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(header_values(&server, "x-tr-client").await, vec![None]);
+}
+
+#[tokio::test]
 async fn a_forced_retry_after_a_sub_400_response_reports_po_none() {
     // A 302 without a Location header passes through reqwest untouched, and
     // x-should-retry: true forces the engine to retry it in place. §3.2's po
