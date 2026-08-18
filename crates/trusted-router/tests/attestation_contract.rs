@@ -8,6 +8,8 @@ use trusted_router::{
     verify_gateway_attestation, AttestationPolicy, AttestationVerificationOptions, ErrorKind,
     GCP_ISSUER,
 };
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const TEST_PRIVATE_KEY: &[u8] = include_bytes!("fixtures/attestation-private.pem");
 const TEST_RSA_MODULUS: &str = "h5lUGVA4611JPHsVBcu8h38KnZ1hZRs9bnyVk8RFzMNZot9ox3EAobT64XrlK5pYjFOB-rq3ra9j-B0Mxt8Lbn3EYs-ClXO84eCb2IiVLuclcjBDmW5v1xFq2a7Jpgpj7T0Kv-9YZ9GfJSZOM_mEyVMi2SX5tZbvbrVG17j9nBNjvege-Y4g7qzzPy3Im0MwPFD6W5k8kMVZWykrWlOAdG5zLhkK5B3euk7Jle7ZsqMV-wNoiO8l52QXGWwCi0M28KKTnFJgwgusoKcTk4_zGk1601vgioLpC3WkYagP615Eqt4d81YmLIROFqKW8xZHBXcroyAmH8eJdFJ4qZXGow";
@@ -111,6 +113,40 @@ async fn exporter_requires_distinct_nonce_and_exact_length() {
         .await
         .unwrap_err();
     assert!(error.to_string().contains("32"));
+}
+
+#[tokio::test]
+async fn owned_jwks_client_rejects_redirects_while_supplied_policy_is_caller_owned() {
+    let source = MockServer::start().await;
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/jwks"))
+        .respond_with(
+            ResponseTemplate::new(307).insert_header("location", format!("{}/keys", target.uri())),
+        )
+        .mount(&source)
+        .await;
+
+    let (token, mut options) = fixture("disabled-since-boot");
+    let jwks = options.jwks.take().unwrap();
+    Mock::given(method("GET"))
+        .and(path("/keys"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(jwks))
+        .mount(&target)
+        .await;
+    options.jwks_url = Some(format!("{}/jwks", source.uri()));
+
+    let error = verify_gateway_attestation(&token, options.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Attestation);
+    assert!(error.to_string().contains("HTTP 307"));
+    assert!(target.received_requests().await.unwrap().is_empty());
+
+    options.http_client = Some(reqwest::Client::new());
+    let verified = verify_gateway_attestation(&token, options).await.unwrap();
+    assert_eq!(verified.image_digest, "sha256:trusted");
+    assert_eq!(target.received_requests().await.unwrap().len(), 1);
 }
 
 fn hex(value: &[u8]) -> String {

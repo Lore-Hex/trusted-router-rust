@@ -173,15 +173,22 @@ async fn control_plane_calls_are_never_traced() {
 
 #[tokio::test]
 async fn the_attestation_fetch_is_never_traced() {
-    // Attestation rides the inference plane in Rust but is fetched outside
-    // the engine in the Python SDK; no SDK sends x-tr-client on it.
+    // Attestation uses the dedicated credential-free client. In addition to
+    // carrying no telemetry, it deliberately bypasses an injected client's
+    // DNS/default-header configuration.
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/v1/attestation"))
         .respond_with(ResponseTemplate::new(200).set_body_bytes(b"evidence".to_vec()))
         .mount(&server)
         .await;
-    apex_client(&server, Some(true))
+    Client::builder()
+        .api_key("sk-test")
+        .api_base_url(format!("{}/v1", server.uri()))
+        .telemetry(true)
+        .max_retries(0)
+        .build()
+        .unwrap()
         .attestation(None)
         .await
         .unwrap();

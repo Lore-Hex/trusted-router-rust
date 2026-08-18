@@ -148,4 +148,27 @@ impl BlockingClient {
             Ok(())
         })
     }
+
+    /// Streams raw SSE events, applying strict prompt-stream validation for
+    /// the Chat Completions and Responses routes.
+    pub fn validated_raw_sse<F>(
+        &self,
+        path: &str,
+        body: Value,
+        options: CallOptions,
+        mut callback: F,
+    ) -> Result<()>
+    where
+        F: FnMut(crate::SseEvent) -> bool,
+    {
+        self.runtime.block_on(async {
+            let mut stream = self.client.validated_raw_sse(path, body, options).await?;
+            while let Some(item) = stream.next().await {
+                if !callback(item?) {
+                    break;
+                }
+            }
+            Ok(())
+        })
+    }
 }

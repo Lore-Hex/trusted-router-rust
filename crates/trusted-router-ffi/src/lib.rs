@@ -89,6 +89,31 @@ pub unsafe extern "C" fn tr_request_json(
     workspace_id: *const c_char,
     idempotency_key: *const c_char,
 ) -> TrResult {
+    unsafe {
+        tr_request_json_with_policy(
+            client,
+            plane,
+            method,
+            path,
+            body_json,
+            workspace_id,
+            idempotency_key,
+            false,
+        )
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn tr_request_json_with_policy(
+    client: *mut TrClient,
+    plane: c_int,
+    method: *const c_char,
+    path: *const c_char,
+    body_json: *const c_char,
+    workspace_id: *const c_char,
+    idempotency_key: *const c_char,
+    auto_idempotency: bool,
+) -> TrResult {
     guarded(|| {
         let client = unsafe { client_ref(client) }?;
         let method = unsafe { required_string(method, "method") }?;
@@ -99,7 +124,10 @@ pub unsafe extern "C" fn tr_request_json(
             .map(|value| serde_json::from_str(&value))
             .transpose()
             .map_err(|error| local_error(format!("invalid body JSON: {error}")))?;
-        let options = unsafe { call_options(workspace_id, idempotency_key) }?;
+        let mut options = unsafe { call_options(workspace_id, idempotency_key) }?;
+        if auto_idempotency && options.idempotency_key.is_none() {
+            options.idempotency_key = Some(generated_idempotency_key());
+        }
         let plane = match plane {
             0 => Plane::Inference,
             1 => Plane::Control,
@@ -122,7 +150,7 @@ pub unsafe extern "C" fn tr_chat_completions(
     idempotency_key: *const c_char,
 ) -> TrResult {
     unsafe {
-        tr_request_json(
+        tr_request_json_with_policy(
             client,
             0,
             c"POST".as_ptr(),
@@ -130,6 +158,7 @@ pub unsafe extern "C" fn tr_chat_completions(
             request_json,
             workspace_id,
             idempotency_key,
+            true,
         )
     }
 }
@@ -146,7 +175,7 @@ pub unsafe extern "C" fn tr_responses(
     idempotency_key: *const c_char,
 ) -> TrResult {
     unsafe {
-        tr_request_json(
+        tr_request_json_with_policy(
             client,
             0,
             c"POST".as_ptr(),
@@ -154,6 +183,7 @@ pub unsafe extern "C" fn tr_responses(
             request_json,
             workspace_id,
             idempotency_key,
+            true,
         )
     }
 }
@@ -185,23 +215,28 @@ pub unsafe extern "C" fn tr_stream_json(
         if let Some(object) = body.as_object_mut() {
             object.insert("stream".to_owned(), Value::Bool(true));
         }
-        let options = unsafe { call_options(workspace_id, idempotency_key) }?;
+        let mut options = unsafe { call_options(workspace_id, idempotency_key) }?;
+        if options.idempotency_key.is_none() {
+            options.idempotency_key = Some(generated_idempotency_key());
+        }
         let callback = callback.ok_or_else(|| local_error("callback is required".to_owned()))?;
-        client.inner.raw_sse(&path, body, options, |event| {
-            let value = serde_json::json!({
-                "event": event.event,
-                "data": event.data,
-                "id": event.id,
-            });
-            let Ok(text) = serde_json::to_string(&value) else {
-                return false;
-            };
-            let Ok(text) = CString::new(text) else {
-                return false;
-            };
-            // SAFETY: the caller supplied the callback; the string lives through the call.
-            unsafe { callback(text.as_ptr(), user_data) != 0 }
-        })?;
+        client
+            .inner
+            .validated_raw_sse(&path, body, options, |event| {
+                let value = serde_json::json!({
+                    "event": event.event,
+                    "data": event.data,
+                    "id": event.id,
+                });
+                let Ok(text) = serde_json::to_string(&value) else {
+                    return false;
+                };
+                let Ok(text) = CString::new(text) else {
+                    return false;
+                };
+                // SAFETY: the caller supplied the callback; the string lives through the call.
+                unsafe { callback(text.as_ptr(), user_data) != 0 }
+            })?;
         success_json(serde_json::json!({"completed": true}))
     })
 }
@@ -315,32 +350,168 @@ fn local_error(message: String) -> Error {
     Error::InvalidConfiguration(message)
 }
 
+fn generated_idempotency_key() -> String {
+    format!("tr-req-{}", uuid::Uuid::new_v4().simple())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
+
+    unsafe extern "C" fn continue_stream_callback(
+        _event_json: *const c_char,
+        user_data: *mut c_void,
+    ) -> c_int {
+        // SAFETY: `invoke_stream` passes a live AtomicUsize for the call.
+        let count = unsafe { &*user_data.cast::<AtomicUsize>() };
+        count.fetch_add(1, Ordering::SeqCst);
+        1
+    }
+
+    unsafe extern "C" fn cancel_stream_callback(
+        _event_json: *const c_char,
+        user_data: *mut c_void,
+    ) -> c_int {
+        // SAFETY: `invoke_stream` passes a live AtomicUsize for the call.
+        let count = unsafe { &*user_data.cast::<AtomicUsize>() };
+        count.fetch_add(1, Ordering::SeqCst);
+        0
+    }
+
+    #[derive(Debug)]
+    struct StreamOutcome {
+        code: c_int,
+        http_status: c_int,
+        data: Option<String>,
+        error: Option<String>,
+        callbacks: usize,
+        wire_path: String,
+    }
+
+    fn invoke_stream(path: &str, sse_body: &str, callback: TrStreamCallback) -> StreamOutcome {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let sse_body = sse_body.to_owned();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 8192];
+            let read = socket.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..read]);
+            let wire_path = request
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .expect("HTTP request line should contain a path")
+                .to_owned();
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                sse_body.len(),
+                sse_body
+            )
+            .unwrap();
+            wire_path
+        });
+
+        let key = CString::new("sk-c-stream-test").unwrap();
+        let base = CString::new(format!("http://{address}/v1")).unwrap();
+        let path = CString::new(path).unwrap();
+        let body = CString::new(r#"{"model":"trustedrouter/fast"}"#).unwrap();
+        let callbacks = AtomicUsize::new(0);
+        // SAFETY: all pointers remain live for the duration of the synchronous call.
+        let client = unsafe { tr_client_new(key.as_ptr(), base.as_ptr(), base.as_ptr()) };
+        assert!(!client.is_null());
+        // SAFETY: the client, strings, callback, and user-data pointer are valid.
+        let result = unsafe {
+            tr_stream_json(
+                client,
+                path.as_ptr(),
+                body.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                callback,
+                (&raw const callbacks).cast_mut().cast(),
+            )
+        };
+        let data = (!result.data.is_null()).then(|| {
+            // SAFETY: non-null result data is a live SDK-owned C string.
+            unsafe { CStr::from_ptr(result.data) }
+                .to_string_lossy()
+                .into_owned()
+        });
+        let error = (!result.error.is_null()).then(|| {
+            // SAFETY: non-null result errors are live SDK-owned C strings.
+            unsafe { CStr::from_ptr(result.error) }
+                .to_string_lossy()
+                .into_owned()
+        });
+        // Join before constructing the outcome so the request's resolved wire
+        // path is available to route-normalisation assertions.
+        let wire_path = server.join().unwrap();
+        let outcome = StreamOutcome {
+            code: result.code,
+            http_status: result.http_status,
+            data,
+            error,
+            callbacks: callbacks.load(Ordering::SeqCst),
+            wire_path,
+        };
+        // SAFETY: each SDK-owned object is released exactly once.
+        unsafe {
+            tr_result_free(result);
+            tr_client_free(client);
+        }
+        outcome
+    }
 
     #[test]
     fn c_abi_round_trip_and_result_ownership() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
-            let (mut socket, _) = listener.accept().unwrap();
-            let mut request = [0_u8; 8192];
-            let read = socket.read(&mut request).unwrap();
-            let text = String::from_utf8_lossy(&request[..read]);
-            assert!(text.starts_with("POST /v1/chat/completions"));
-            assert!(text.contains("authorization: Bearer sk-c-test"));
-            let body = r#"{"id":"chat_c","choices":[{"index":0,"message":{"role":"assistant","content":"PONG"}}]}"#;
-            write!(
-                socket,
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            )
-            .unwrap();
+            let mut keys = Vec::new();
+            for attempt in 0..2 {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut request = [0_u8; 8192];
+                let read = socket.read(&mut request).unwrap();
+                let text = String::from_utf8_lossy(&request[..read]);
+                assert!(text.starts_with("POST /v1/chat/completions"));
+                assert!(text.contains("authorization: Bearer sk-c-test"));
+                let key = text
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("idempotency-key")
+                            .then(|| value.trim().to_owned())
+                    })
+                    .expect("C ABI high-level call should mint an idempotency key");
+                keys.push(key);
+
+                if attempt == 0 {
+                    let body = r#"{"error":{"message":"retry"}}"#;
+                    write!(
+                        socket,
+                        "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .unwrap();
+                } else {
+                    let body = r#"{"id":"chat_c","choices":[{"index":0,"message":{"role":"assistant","content":"PONG"}}]}"#;
+                    write!(
+                        socket,
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .unwrap();
+                }
+            }
+            keys
         });
 
         let key = CString::new("sk-c-test").unwrap();
@@ -365,7 +536,10 @@ mod tests {
             tr_result_free(result);
             tr_client_free(client);
         }
-        server.join().unwrap();
+        let keys = server.join().unwrap();
+        assert_eq!(keys.len(), 2);
+        assert_eq!(keys[0], keys[1]);
+        assert!(keys[0].starts_with("tr-req-"));
     }
 
     #[test]
@@ -387,5 +561,180 @@ mod tests {
         assert!(!result.error.is_null());
         // SAFETY: the result is released once.
         unsafe { tr_result_free(result) };
+    }
+
+    #[test]
+    fn c_abi_chat_stream_rejects_truncation_malformed_json_and_api_errors() {
+        let truncated = invoke_stream(
+            "/chat/completions",
+            "data: {\"id\":\"chunk\",\"choices\":[]}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(truncated.code, 8);
+        assert_eq!(truncated.http_status, 0);
+        assert_eq!(truncated.callbacks, 1);
+        assert!(truncated
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("ended before [DONE]"));
+
+        let malformed = invoke_stream(
+            "/chat/completions",
+            "data: {not-json}\n\ndata: [DONE]\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(malformed.code, 10);
+        assert_eq!(malformed.callbacks, 0);
+        assert!(malformed
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("invalid SSE JSON"));
+
+        let api_error = invoke_stream(
+            "/chat/completions",
+            "data: {\"error\":{\"message\":\"limited\",\"status\":429}}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(api_error.code, 5);
+        assert_eq!(api_error.http_status, 429);
+        assert_eq!(api_error.callbacks, 0);
+        assert!(api_error.error.as_deref().unwrap().contains("limited"));
+    }
+
+    #[test]
+    fn c_abi_responses_stream_requires_a_terminal_event() {
+        let truncated = invoke_stream(
+            "/responses",
+            "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"x\"}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(truncated.code, 8);
+        assert_eq!(truncated.callbacks, 1);
+        assert!(truncated
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("before a terminal event"));
+    }
+
+    #[test]
+    fn c_abi_known_stream_terminals_complete_successfully() {
+        let chat = invoke_stream(
+            "/chat/completions",
+            "data: {\"id\":\"chunk\",\"choices\":[]}\n\ndata: [DONE]\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(chat.code, 0);
+        assert_eq!(chat.callbacks, 2);
+
+        let responses = invoke_stream(
+            "/responses",
+            "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\"}}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(responses.code, 0);
+        assert_eq!(responses.callbacks, 1);
+    }
+
+    #[test]
+    fn c_abi_semantic_prompt_routes_cannot_bypass_validation() {
+        let chat_dot_segment = invoke_stream(
+            "/x/../chat/completions",
+            "data: {not-json}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(chat_dot_segment.wire_path, "/v1/chat/completions");
+        assert_eq!(chat_dot_segment.code, 10);
+        assert_eq!(chat_dot_segment.callbacks, 0);
+
+        let chat_root = invoke_stream(
+            "/../chat/completions",
+            "data: {not-json}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(chat_root.wire_path, "/chat/completions");
+        assert_eq!(chat_root.code, 10);
+        assert_eq!(chat_root.callbacks, 0);
+
+        let responses_dot_segment = invoke_stream(
+            "/x/../responses",
+            "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"x\"}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(responses_dot_segment.wire_path, "/v1/responses");
+        assert_eq!(responses_dot_segment.code, 8);
+        assert_eq!(responses_dot_segment.callbacks, 1);
+
+        for spelling in [
+            "/chat/%63ompletions",
+            "/chat/completion%73",
+            "/chat%2fcompletions",
+            "/CHAT/COMPLETIONS",
+            "/chat//completions",
+        ] {
+            let malformed = invoke_stream(
+                spelling,
+                "data: {not-json}\n\n",
+                Some(continue_stream_callback),
+            );
+            assert_eq!(malformed.code, 10, "chat route spelling {spelling}");
+            assert_eq!(malformed.callbacks, 0, "chat route spelling {spelling}");
+        }
+
+        for spelling in [
+            "/%72esponses",
+            "/response%73",
+            "/responses%2f",
+            "/RESPONSES",
+            "/responses//",
+        ] {
+            let truncated = invoke_stream(
+                spelling,
+                "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"x\"}\n\n",
+                Some(continue_stream_callback),
+            );
+            assert_eq!(truncated.code, 8, "Responses route spelling {spelling}");
+            assert_eq!(
+                truncated.callbacks, 1,
+                "Responses route spelling {spelling}"
+            );
+        }
+    }
+
+    #[test]
+    fn c_abi_unrelated_prompt_suffixes_remain_framing_only() {
+        let chat = invoke_stream(
+            "/custom/chat/completions",
+            "data: {not-json}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(chat.wire_path, "/v1/custom/chat/completions");
+        assert_eq!(chat.code, 0);
+        assert_eq!(chat.callbacks, 1);
+
+        let responses = invoke_stream(
+            "/custom/responses",
+            "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"x\"}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(responses.wire_path, "/v1/custom/responses");
+        assert_eq!(responses.code, 0);
+        assert_eq!(responses.callbacks, 1);
+    }
+
+    #[test]
+    fn c_abi_callback_cancellation_is_clean_success() {
+        let cancelled = invoke_stream(
+            "/chat/completions",
+            "data: {\"id\":\"chunk\",\"choices\":[]}\n\n",
+            Some(cancel_stream_callback),
+        );
+        assert_eq!(cancelled.code, 0);
+        assert_eq!(cancelled.http_status, 200);
+        assert_eq!(cancelled.callbacks, 1);
+        assert_eq!(cancelled.data.as_deref(), Some("{\"completed\":true}"));
+        assert!(cancelled.error.is_none());
     }
 }

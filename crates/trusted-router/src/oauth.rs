@@ -1,6 +1,6 @@
 //! OAuth credit delegation helpers with PKCE and loopback callbacks.
 
-use crate::client::{CallOptions, Client, Plane};
+use crate::client::{CallOptions, Client};
 use crate::{Error, Result};
 use base64::Engine;
 use http::Method;
@@ -196,14 +196,8 @@ impl Client {
         options.workspace_id = Some(String::new());
         let body = serde_json::to_value(request)
             .map_err(|error| Error::Serialization(error.to_string()))?;
-        self.request(
-            Plane::Control,
-            Method::POST,
-            "/auth/keys",
-            Some(body),
-            options,
-        )
-        .await
+        self.credential_free_control_request(Method::POST, "/auth/keys", Some(body), options)
+            .await
     }
 }
 

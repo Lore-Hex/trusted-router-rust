@@ -77,9 +77,11 @@ impl Client {
     ///    headers and the per-attempt deadline.
     /// 3. 2xx returns the response UNTOUCHED — never drained here.
     /// 4. Non-2xx drains the failure body under the deadline BEFORE the
-    ///    retry-ceiling check; a body-read error still propagates.
-    /// 5. Transport errors always mark `failover` — no server saw the request,
-    ///    so moving cannot double-execute anything.
+    ///    retry-ceiling check. A retryable status survives a truncated or
+    ///    stalled diagnostic body; other body-read errors propagate.
+    /// 5. Transport errors are ambiguous about server acceptance. They mark
+    ///    `failover`, but the replay-safety gate must pass before any retry or
+    ///    candidate move occurs.
     /// 6. The ceiling check makes total attempts `max_retries + 1`.
     /// 7. The cursor advances only on a failover-marked disposition.
     /// 8. The engine sleeps the jittered, retry-after-floored delay.
@@ -109,6 +111,7 @@ impl Client {
         let mut recorder = self.request_recorder(plane, resolved_path, streaming);
         let mut cursor = CandidateCursor::new(candidates.len());
         let mut attempt = 0;
+        let replay_safe = request_replay_safe(&method, options);
         loop {
             let url = candidates[cursor.index()].clone();
             if let Some(recorder) = recorder.as_mut() {
@@ -133,22 +136,39 @@ impl Client {
                 Ok(response) => {
                     let status = response.status();
                     let headers = response.headers().clone();
-                    // Drain the failure body before deciding anything: the
-                    // classified error needs the payload, and a read failure
-                    // must surface as itself, not as a retry decision.
-                    let bytes = self.read_response(response, options).await?;
-                    // Recorded AFTER the drain so pm covers the whole
-                    // previous attempt for buffered HTTP errors, matching the
-                    // buffered Python driver's measurement.
-                    if let Some(recorder) = recorder.as_mut() {
-                        recorder.on_response(status.as_u16());
+                    // Drain the failure body before deciding anything so the
+                    // classified error can retain its structured payload.
+                    match self.read_response(response, options).await {
+                        Ok(bytes) => {
+                            // Recorded AFTER the drain so pm covers the whole
+                            // previous attempt for buffered HTTP errors.
+                            if let Some(recorder) = recorder.as_mut() {
+                                recorder.on_response(status.as_u16());
+                            }
+                            let payload = serde_json::from_slice::<Value>(&bytes).ok();
+                            FailureDisposition::from_http(status.as_u16(), &headers, payload)
+                        }
+                        Err(read_error) => {
+                            if let Some(recorder) = recorder.as_mut() {
+                                recorder.on_response(status.as_u16());
+                            }
+                            // Once a retryable status is known, a truncated or
+                            // stalled diagnostic body consumes this attempt but
+                            // must not bypass the retry policy. Non-retryable
+                            // status bodies still surface their read failure.
+                            let disposition =
+                                FailureDisposition::from_http(status.as_u16(), &headers, None);
+                            if disposition.retry {
+                                disposition
+                            } else {
+                                return Err(read_error);
+                            }
+                        }
                     }
-                    let payload = serde_json::from_slice::<Value>(&bytes).ok();
-                    FailureDisposition::from_http(status.as_u16(), &headers, payload)
                 }
                 Err(error) => FailureDisposition::from_transport(error),
             };
-            if attempt >= self.max_retries || !disposition.retry {
+            if attempt >= self.max_retries || !disposition.retry || !replay_safe {
                 return Err(disposition.error);
             }
             // Only gateway-level statuses (and transport errors) move domains.
@@ -284,6 +304,16 @@ impl Client {
     }
 }
 
+fn request_replay_safe(method: &Method, options: &CallOptions) -> bool {
+    matches!(
+        *method,
+        Method::GET | Method::HEAD | Method::OPTIONS | Method::TRACE
+    ) || options
+        .idempotency_key
+        .as_ref()
+        .is_some_and(|key| !key.is_empty())
+}
+
 /// End-to-end proof that the STREAMING open walks the candidate list too.
 ///
 /// These live in the crate rather than `tests/` so they can set
@@ -366,6 +396,13 @@ mod candidate_walk_tests {
             .map(|value| value.to_str().unwrap().to_owned())
     }
 
+    fn replay_options() -> CallOptions {
+        CallOptions {
+            idempotency_key: Some("test-retry-key".to_owned()),
+            ..CallOptions::default()
+        }
+    }
+
     /// Splits a retry header into its §3.2 fields, asserting exact key order,
     /// the value grammar, and the 160-byte bound along the way.
     fn parsed_retry_header(header: &str) -> Vec<(String, String)> {
@@ -415,7 +452,7 @@ mod candidate_walk_tests {
                 Method::POST,
                 "/chat/completions",
                 json!({"model": "trustedrouter/auto"}),
-                CallOptions::default(),
+                replay_options(),
             )
             .await
             .expect("stream should open on the second candidate");
@@ -457,7 +494,7 @@ mod candidate_walk_tests {
                 Method::POST,
                 "/chat/completions",
                 json!({"model": "trustedrouter/auto"}),
-                CallOptions::default(),
+                replay_options(),
             )
             .await
             .expect_err("a 500 should surface, not move domains");
@@ -487,7 +524,7 @@ mod candidate_walk_tests {
                 Method::POST,
                 "/chat/completions",
                 Some(json!({"model": "trustedrouter/auto"})),
-                CallOptions::default(),
+                replay_options(),
             )
             .await
             .expect("the buffered call should succeed on the second candidate");
@@ -526,7 +563,7 @@ mod candidate_walk_tests {
                 Method::POST,
                 "/chat/completions",
                 Some(json!({"model": "trustedrouter/auto"})),
-                CallOptions::default(),
+                replay_options(),
             )
             .await
             .expect_err("a 500 should surface, not move domains");
@@ -578,7 +615,7 @@ mod candidate_walk_tests {
                 Method::POST,
                 "/chat/completions",
                 Some(json!({"model": "trustedrouter/auto"})),
-                CallOptions::default(),
+                replay_options(),
             )
             .await
             .expect("the call should succeed on the second candidate");
@@ -714,7 +751,7 @@ mod candidate_walk_tests {
                 Method::POST,
                 "/chat/completions",
                 Some(json!({"model": "trustedrouter/auto"})),
-                CallOptions::default(),
+                replay_options(),
             )
             .await
             .expect("the call should succeed on the second candidate");
@@ -769,7 +806,7 @@ mod candidate_walk_tests {
                 Method::POST,
                 "/chat/completions",
                 Some(json!({"model": "trustedrouter/auto"})),
-                CallOptions::default(),
+                replay_options(),
             )
             .await
             .expect("the call should succeed on the second candidate");
@@ -821,6 +858,7 @@ mod candidate_walk_tests {
                 Some(json!({"model": "trustedrouter/auto"})),
                 CallOptions {
                     timeout: Some(std::time::Duration::from_millis(100)),
+                    idempotency_key: Some("test-retry-key".to_owned()),
                     ..CallOptions::default()
                 },
             )

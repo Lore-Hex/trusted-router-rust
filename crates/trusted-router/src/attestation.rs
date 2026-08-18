@@ -205,6 +205,11 @@ pub struct AttestationVerificationOptions {
     /// Optional JWKS endpoint override.
     pub jwks_url: Option<String>,
     /// Optional HTTP client for JWKS retrieval.
+    ///
+    /// When omitted, verification uses a fresh SDK-owned client that never
+    /// follows redirects. Reqwest clients are immutable, so a supplied client
+    /// is used verbatim: its redirect policy, cookie store, and default headers
+    /// are an explicit caller-owned trust boundary.
     pub http_client: Option<reqwest::Client>,
 }
 
@@ -285,7 +290,15 @@ pub async fn verify_gateway_attestation(
 }
 
 async fn fetch_jwks(options: &AttestationVerificationOptions) -> Result<Value> {
-    let client = options.http_client.clone().unwrap_or_default();
+    let client = match options.http_client.clone() {
+        Some(client) => client,
+        None => reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|error| {
+                Error::Attestation(format!("cannot build JWKS HTTP client: {error}"))
+            })?,
+    };
     let response = client
         .get(options.jwks_url.as_deref().unwrap_or(GCP_JWKS_URL))
         .send()

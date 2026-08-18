@@ -21,6 +21,7 @@
 //! in-process fake transport, so the wire tests must speak real HTTP.
 
 use crate::constants::{ALIAS_API_BASE_URLS, DEFAULT_API_BASE_URL};
+use crate::transport::routing::semantic_route;
 use std::time::Instant;
 use url::Url;
 
@@ -252,66 +253,16 @@ pub(crate) fn resolve_telemetry_enabled(
 ///
 /// The engine passes the RESOLVED candidate path, not the caller's raw
 /// string, so dot segments (`/x/../attestation`) cannot dodge either
-/// exclusion — and the comparison runs on [`normalise_route`], so no
+/// exclusion — and the comparison runs on [`semantic_route`], so no
 /// alternate SPELLING of an excluded route can dodge one either. A §2.2 MUST
 /// has to fail closed: matching the literal route text alone let
 /// `/internal/gateway/%61uthorize` through, because `Url::path` keeps percent
 /// escapes while the gateway's request parser decodes them before routing.
 pub(crate) fn tracked_inference_path(path: &str) -> bool {
     let clean = path.split(['?', '#']).next().unwrap_or(path);
-    let route = normalise_route(clean);
+    let route = semantic_route(clean);
     let excluded = |name: &str| route.ends_with(name) || route.contains(&format!("{name}/"));
     !excluded("/attestation") && !excluded("/internal/gateway/authorize")
-}
-
-/// Folds a request path to the shape a gateway routes on, so the exclusion
-/// check sees the route the enclave will see: ASCII percent escapes decoded,
-/// ASCII case folded, repeated separators collapsed, and a trailing separator
-/// dropped.
-///
-/// Deliberately over-folds. Every fold here can only ever SUPPRESS telemetry
-/// on a path that is not quite an excluded route; none can ever send it on one
-/// that is, which is the only direction §2.2 cares about. Total: no panics,
-/// and no non-ASCII byte can fold into an ASCII route name.
-fn normalise_route(path: &str) -> String {
-    let decoded = percent_decode_ascii(path);
-    let mut route = String::with_capacity(decoded.len());
-    for character in decoded.chars() {
-        let character = character.to_ascii_lowercase();
-        if character == '/' && route.ends_with('/') {
-            continue;
-        }
-        route.push(character);
-    }
-    while route.len() > 1 && route.ends_with('/') {
-        route.pop();
-    }
-    route
-}
-
-/// Decodes `%XX` escapes. A malformed escape stays literal, and a decoded
-/// byte above ASCII becomes a character that matches no route name, so the
-/// result is only ever used to compare against ASCII route text — never on the
-/// wire.
-fn percent_decode_ascii(path: &str) -> String {
-    let bytes = path.as_bytes();
-    let mut out = String::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if byte == b'%' && index + 2 < bytes.len() {
-            let high = char::from(bytes[index + 1]).to_digit(16);
-            let low = char::from(bytes[index + 2]).to_digit(16);
-            if let (Some(high), Some(low)) = (high, low) {
-                out.push(char::from_u32(high * 16 + low).unwrap_or(char::REPLACEMENT_CHARACTER));
-                index += 3;
-                continue;
-            }
-        }
-        out.push(char::from(byte));
-        index += 1;
-    }
-    out
 }
 
 /// Classifies a transport failure into the §5.2 vocabulary while the typed

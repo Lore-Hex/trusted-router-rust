@@ -43,6 +43,9 @@ impl Client {
             ))?,
         );
         let api_key = options.api_key.as_ref().or(self.api_key.as_ref());
+        if options.api_key.is_some() || self.api_key.is_some() {
+            headers.remove(reqwest::header::AUTHORIZATION);
+        }
         if let Some(api_key) = api_key.filter(|value| !value.is_empty()) {
             headers.insert(
                 reqwest::header::AUTHORIZATION,
@@ -76,7 +79,7 @@ impl Client {
 /// endpoint wrappers and the SSE streaming openers both come through here, so
 /// the `tr-req-{uuid}` key is minted ONCE per logical call BEFORE the retry
 /// loop and replayed verbatim on every attempt and every domain move — the
-/// caller is never double-charged (idempotent auth + exactly-once settlement).
+/// caller is never double-charged (exactly-once settlement).
 /// Its header transport is pinned by
 /// `per_call_workspace_and_idempotency_are_headers_not_body` in
 /// `tests/client_contract.rs`.
