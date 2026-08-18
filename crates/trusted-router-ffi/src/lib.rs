@@ -649,6 +649,15 @@ mod tests {
         assert_eq!(chat_dot_segment.code, 10);
         assert_eq!(chat_dot_segment.callbacks, 0);
 
+        let chat_root = invoke_stream(
+            "/../chat/completions",
+            "data: {not-json}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(chat_root.wire_path, "/chat/completions");
+        assert_eq!(chat_root.code, 10);
+        assert_eq!(chat_root.callbacks, 0);
+
         let responses_dot_segment = invoke_stream(
             "/x/../responses",
             "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"x\"}\n\n",
@@ -692,6 +701,27 @@ mod tests {
                 "Responses route spelling {spelling}"
             );
         }
+    }
+
+    #[test]
+    fn c_abi_unrelated_prompt_suffixes_remain_framing_only() {
+        let chat = invoke_stream(
+            "/custom/chat/completions",
+            "data: {not-json}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(chat.wire_path, "/v1/custom/chat/completions");
+        assert_eq!(chat.code, 0);
+        assert_eq!(chat.callbacks, 1);
+
+        let responses = invoke_stream(
+            "/custom/responses",
+            "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"x\"}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(responses.wire_path, "/v1/custom/responses");
+        assert_eq!(responses.code, 0);
+        assert_eq!(responses.callbacks, 1);
     }
 
     #[test]

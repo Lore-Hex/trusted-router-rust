@@ -120,6 +120,44 @@ pub(crate) fn semantic_route(path: &str) -> String {
     route
 }
 
+/// Resolves a caller-supplied root-relative path independently of any
+/// configured API base, then returns its exact semantic logical route.
+///
+/// A dummy root deliberately makes `/x/../chat/completions` and percent-
+/// encoded ASCII spellings comparable to `/chat/completions` without letting
+/// an unrelated suffix such as `/custom/chat/completions` collapse to it.
+pub(crate) fn semantic_request_route(path: &str) -> String {
+    let Ok(root) = Url::parse("https://sdk.invalid/") else {
+        return semantic_route(path);
+    };
+    let Ok(resolved) = root.join(path.trim_start_matches('/')) else {
+        return semantic_route(path);
+    };
+    semantic_route(resolved.path())
+}
+
+/// Returns a response's exact semantic route relative to a configured base
+/// when both URLs have the same origin and the response remains at or below
+/// the base path. A component boundary is required, so `/v10` is not treated
+/// as relative to `/v1`.
+pub(crate) fn semantic_route_relative_to_base(base: &Url, response: &Url) -> Option<String> {
+    if base.origin() != response.origin() {
+        return None;
+    }
+    let base_path = semantic_route(base.path());
+    let response_path = semantic_route(response.path());
+    if base_path == "/" {
+        return Some(response_path);
+    }
+    if response_path == base_path {
+        return Some("/".to_owned());
+    }
+    let prefix = format!("{base_path}/");
+    response_path
+        .strip_prefix(&prefix)
+        .map(|relative| format!("/{relative}"))
+}
+
 /// Decodes `%XX` escapes for semantic comparison only. Malformed escapes stay
 /// literal, and decoded non-ASCII bytes cannot match an ASCII SDK route.
 fn percent_decode_ascii(path: &str) -> String {
@@ -141,4 +179,52 @@ fn percent_decode_ascii(path: &str) -> String {
         index += 1;
     }
     out
+}
+
+#[cfg(test)]
+mod semantic_route_tests {
+    use super::{semantic_request_route, semantic_route_relative_to_base};
+    use url::Url;
+
+    #[test]
+    fn intended_routes_are_exact_after_url_and_ascii_normalisation() {
+        for spelling in [
+            "/chat/completions",
+            "/x/../chat/completions",
+            "/chat/%63ompletions",
+            "/CHAT//COMPLETIONS/",
+        ] {
+            assert_eq!(
+                semantic_request_route(spelling),
+                "/chat/completions",
+                "spelling {spelling}"
+            );
+        }
+        assert_eq!(
+            semantic_request_route("/custom/chat/completions"),
+            "/custom/chat/completions"
+        );
+    }
+
+    #[test]
+    fn response_routes_are_exact_relative_to_matching_custom_bases() {
+        let base = Url::parse("https://api.example/tenant/v2/").unwrap();
+        let canonical = Url::parse("https://api.example/tenant/v2/chat/completions").unwrap();
+        assert_eq!(
+            semantic_route_relative_to_base(&base, &canonical).as_deref(),
+            Some("/chat/completions")
+        );
+
+        let custom = Url::parse("https://api.example/tenant/v2/custom/chat/completions").unwrap();
+        assert_eq!(
+            semantic_route_relative_to_base(&base, &custom).as_deref(),
+            Some("/custom/chat/completions")
+        );
+
+        let prefix_collision =
+            Url::parse("https://api.example/tenant/v20/chat/completions").unwrap();
+        assert!(semantic_route_relative_to_base(&base, &prefix_collision).is_none());
+        let cross_origin = Url::parse("https://other.example/tenant/v2/chat/completions").unwrap();
+        assert!(semantic_route_relative_to_base(&base, &cross_origin).is_none());
+    }
 }

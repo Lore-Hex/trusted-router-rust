@@ -109,6 +109,91 @@ async fn injected_client_redirect_policy_and_defaults_are_caller_owned() {
 }
 
 #[tokio::test]
+async fn injected_redirect_cannot_downgrade_intended_prompt_stream_validation() {
+    let source = MockServer::start().await;
+    let target = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(307)
+                .insert_header("location", format!("{}/capture", target.uri())),
+        )
+        .mount(&source)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/capture"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw("data: {not-json}\n\n", "text/event-stream"),
+        )
+        .mount(&target)
+        .await;
+
+    let injected = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(2))
+        .build()
+        .unwrap();
+    let client = Client::builder()
+        .api_base_url(format!("{}/v1", source.uri()))
+        .http_client(injected)
+        .max_retries(0)
+        .build()
+        .unwrap();
+    let mut stream = client
+        .validated_raw_sse(
+            "/chat/completions",
+            json!({"model": "trustedrouter/fast", "stream": true}),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
+    let error = stream.next().await.unwrap().unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Serialization);
+    assert!(error.to_string().contains("invalid SSE JSON"));
+    assert_eq!(target.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn final_exact_candidate_relative_prompt_route_enables_validation() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/entry"))
+        .respond_with(
+            ResponseTemplate::new(307)
+                .insert_header("location", format!("{}/v1/chat/completions", server.uri())),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw("data: {not-json}\n\n", "text/event-stream"),
+        )
+        .mount(&server)
+        .await;
+
+    let injected = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(2))
+        .build()
+        .unwrap();
+    let client = Client::builder()
+        .api_base_url(format!("{}/v1", server.uri()))
+        .http_client(injected)
+        .max_retries(0)
+        .build()
+        .unwrap();
+    let mut stream = client
+        .validated_raw_sse(
+            "/entry",
+            json!({"model": "trustedrouter/fast", "stream": true}),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
+    let error = stream.next().await.unwrap().unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Serialization);
+}
+
+#[tokio::test]
 async fn credential_free_paths_ignore_injected_default_authorization() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

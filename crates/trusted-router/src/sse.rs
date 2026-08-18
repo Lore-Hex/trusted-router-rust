@@ -2,7 +2,9 @@
 
 use crate::client::{CallOptions, Client, Plane};
 use crate::transport::headers::ensure_idempotency_key;
-use crate::transport::routing::semantic_route;
+use crate::transport::routing::{
+    semantic_request_route, semantic_route, semantic_route_relative_to_base,
+};
 use crate::types::{ChatCompletionChunk, ChatRequest, ResponseEvent, ResponsesRequest};
 use crate::{Error, Result};
 use eventsource_stream::{EventStreamError, Eventsource};
@@ -123,36 +125,54 @@ impl Client {
         path: &str,
         body: Value,
         options: CallOptions,
-    ) -> Result<(SseStream, String)> {
+    ) -> Result<(SseStream, url::Url)> {
         let options = ensure_idempotency_key(options);
         let response = self
             .open_stream(Plane::Inference, Method::POST, path, body, options.clone())
             .await?;
-        // Classify the URL attached to the actual response, after Url::join
-        // has resolved dot segments (and after any caller-owned injected
-        // transport redirect). The shared semantic fold then mirrors gateway
-        // decoding of ASCII escapes. Validation never reasons from the raw
-        // caller spelling.
-        let route = semantic_route(response.url().path());
+        // Retain the URL attached to the actual response, after Url::join has
+        // resolved dot segments and after any caller-owned injected redirect.
+        // validated_raw_sse combines it with the pre-send logical route so a
+        // redirect can tighten validation but never downgrade it.
+        let response_url = response.url().clone();
         let stream = parse_sse(response, options.timeout.or(self.timeout));
-        Ok((stream, route))
+        Ok((stream, response_url))
     }
 
     /// Opens raw SSE events while applying the strict terminal, JSON, and API
     /// error validation required by known prompt endpoints. Unknown routes
-    /// retain the framing-only behavior of [`Self::raw_sse`].
+    /// retain the framing-only behavior of [`Self::raw_sse`]. Prompt matching
+    /// is exact on the resolved logical route, and intended prompt strictness
+    /// is retained across caller-owned transport redirects.
     pub async fn validated_raw_sse(
         &self,
         path: &str,
         body: Value,
         options: CallOptions,
     ) -> Result<SseStream> {
-        let (stream, route) = self.open_raw_sse(path, body, options).await?;
-        match prompt_stream_kind(&route) {
+        // Resolve the intended logical route before sending. This is retained
+        // even if an injected Reqwest client follows a redirect to a different
+        // path, so `/chat/completions -> /capture` cannot shed strict parsing.
+        let intended_kind = prompt_stream_kind(&semantic_request_route(path));
+        let (stream, response_url) = self.open_raw_sse(path, body, options).await?;
+        let final_kind = self.response_prompt_stream_kind(&response_url);
+        match intended_kind.or(final_kind) {
             Some(PromptStreamKind::Chat) => Ok(validate_raw_chat_stream(stream)),
             Some(PromptStreamKind::Responses) => Ok(validate_raw_responses_stream(stream)),
             None => Ok(stream),
         }
+    }
+
+    fn response_prompt_stream_kind(&self, response_url: &url::Url) -> Option<PromptStreamKind> {
+        // A final URL on a configured candidate origin is classified by its
+        // exact route RELATIVE to that candidate's base path. If the final URL
+        // sits outside every matching base (or is cross-origin), only an exact
+        // root canonical route is prompt-bearing. No suffix matching.
+        self.api_base_urls
+            .iter()
+            .filter_map(|base| semantic_route_relative_to_base(base, response_url))
+            .find_map(|route| prompt_stream_kind(&route))
+            .or_else(|| prompt_stream_kind(&semantic_route(response_url.path())))
     }
 }
 
@@ -364,13 +384,10 @@ enum PromptStreamKind {
 }
 
 fn prompt_stream_kind(route: &str) -> Option<PromptStreamKind> {
-    let route = route.trim_start_matches('/');
-    if route == "chat/completions" || route.ends_with("/chat/completions") {
-        Some(PromptStreamKind::Chat)
-    } else if route == "responses" || route.ends_with("/responses") {
-        Some(PromptStreamKind::Responses)
-    } else {
-        None
+    match route {
+        "/chat/completions" => Some(PromptStreamKind::Chat),
+        "/responses" => Some(PromptStreamKind::Responses),
+        _ => None,
     }
 }
 
