@@ -16,8 +16,9 @@
 //! `tests/client_contract.rs`.
 //!
 //! 1. The failover set {502, 503, 504} is a strict subset of the retry set
-//!    {429, 500, 502, 503, 504, verdict-true} —
-//!    `only_gateway_statuses_move_domains`, `a_429_does_not_move_domains`.
+//!    {429, every status >=500, verdict-true} —
+//!    `only_gateway_statuses_move_domains`, `all_server_errors_are_retryable`,
+//!    `a_429_does_not_move_domains`.
 //! 2. A 500 NEVER moves domains: a server processed the non-idempotent
 //!    inference, and re-sending elsewhere risks a second generation —
 //!    `a_500_does_not_move_domains`,

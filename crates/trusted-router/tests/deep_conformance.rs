@@ -51,6 +51,64 @@ async fn owned_client_does_not_follow_redirects() {
 }
 
 #[tokio::test]
+async fn injected_client_redirect_policy_and_defaults_are_caller_owned() {
+    let source = MockServer::start().await;
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(307)
+                .insert_header("location", format!("{}/captured", target.uri())),
+        )
+        .mount(&source)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/captured"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"followed": true})))
+        .mount(&target)
+        .await;
+
+    let mut defaults = reqwest::header::HeaderMap::new();
+    defaults.insert(
+        reqwest::header::HeaderName::from_static("x-caller-transport"),
+        reqwest::header::HeaderValue::from_static("verbatim"),
+    );
+    let injected = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(2))
+        .default_headers(defaults)
+        .build()
+        .unwrap();
+    let client = Client::builder()
+        .api_base_url(format!("{}/v1", source.uri()))
+        .http_client(injected)
+        .max_retries(0)
+        .build()
+        .unwrap();
+
+    let response = client
+        .request::<Value>(
+            Plane::Inference,
+            Method::GET,
+            "/models",
+            None,
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response, json!({"followed": true}));
+    let captured = target.received_requests().await.unwrap();
+    assert_eq!(captured.len(), 1);
+    assert_eq!(
+        captured[0]
+            .headers
+            .get("x-caller-transport")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "verbatim"
+    );
+}
+
+#[tokio::test]
 async fn credential_free_paths_ignore_injected_default_authorization() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

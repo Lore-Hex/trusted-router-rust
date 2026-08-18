@@ -8,8 +8,9 @@
 //! locally:
 //!
 //! - Failover set {502, 503, 504} is a strict subset of the retry set
-//!   (`only_gateway_statuses_move_domains`, `a_500_does_not_move_domains`,
-//!   `a_429_does_not_move_domains`).
+//!   {429, every status >=500, verdict-true}
+//!   (`only_gateway_statuses_move_domains`, `all_server_errors_are_retryable`,
+//!   `a_500_does_not_move_domains`, `a_429_does_not_move_domains`).
 //! - `x-should-retry` overrides both predicates in both directions
 //!   (`the_verdict_only_speaks_when_the_server_did`,
 //!   `a_labelled_spent_response_is_neither_retried_nor_moved`,
@@ -232,6 +233,20 @@ mod failover_tests {
             retryable_status(500, &no_headers()),
             "500 should still retry in place"
         );
+    }
+
+    #[test]
+    fn all_server_errors_are_retryable() {
+        for status in [501u16, 505, 599] {
+            assert!(
+                retryable_status(status, &no_headers()),
+                "{status} should retry in place"
+            );
+            assert!(
+                !failoverable_status(status, &no_headers()),
+                "{status} must not move domains"
+            );
+        }
     }
 
     #[test]

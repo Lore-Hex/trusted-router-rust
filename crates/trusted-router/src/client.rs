@@ -156,7 +156,14 @@ impl ClientBuilder {
         self
     }
 
-    /// Uses a caller-supplied Reqwest client.
+    /// Uses a caller-supplied Reqwest client for general API traffic.
+    ///
+    /// Reqwest clients are immutable, so the SDK cannot disable redirects,
+    /// remove a cookie store, or remove default headers from this client.
+    /// Configure [`reqwest::redirect::Policy::none`] and avoid ambient
+    /// credential defaults when those guarantees are required. Credential-free
+    /// SDK operations such as status metadata and OAuth exchange continue to
+    /// use a separate SDK-owned, non-redirecting transport.
     pub fn http_client(mut self, value: reqwest::Client) -> Self {
         self.http_client = Some(value);
         self

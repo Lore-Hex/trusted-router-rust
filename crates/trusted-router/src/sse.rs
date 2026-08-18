@@ -122,6 +122,23 @@ impl Client {
             options.timeout.or(self.timeout),
         )))
     }
+
+    /// Opens raw SSE events while applying the strict terminal, JSON, and API
+    /// error validation required by known prompt endpoints. Unknown routes
+    /// retain the framing-only behavior of [`Self::raw_sse`].
+    pub async fn validated_raw_sse(
+        &self,
+        path: &str,
+        body: Value,
+        options: CallOptions,
+    ) -> Result<SseStream> {
+        let stream = self.raw_sse(path, body, options).await?;
+        match prompt_stream_kind(path) {
+            Some(PromptStreamKind::Chat) => Ok(validate_raw_chat_stream(stream)),
+            Some(PromptStreamKind::Responses) => Ok(validate_raw_responses_stream(stream)),
+            None => Ok(stream),
+        }
+    }
 }
 
 fn parse_sse(response: reqwest::Response, idle_timeout: Option<Duration>) -> SseStream {
@@ -248,6 +265,96 @@ fn validate_responses_stream(mut stream: SseStream) -> ResponseEventStream {
             yield Err(Error::Transport("SSE stream ended before a terminal event".to_owned()));
         }
     })
+}
+
+fn validate_raw_chat_stream(mut stream: SseStream) -> SseStream {
+    Box::pin(async_stream::stream! {
+        let mut terminated = false;
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(event) if event.data.trim() == "[DONE]" => {
+                    terminated = true;
+                    yield Ok(event);
+                    break;
+                }
+                Ok(event) => match parse_json_event(&event.data) {
+                    Ok(_) => yield Ok(event),
+                    Err(error) => {
+                        yield Err(error);
+                        return;
+                    }
+                },
+                Err(error) => {
+                    yield Err(error);
+                    return;
+                }
+            }
+        }
+        if !terminated {
+            yield Err(Error::Transport("SSE stream ended before [DONE]".to_owned()));
+        }
+    })
+}
+
+fn validate_raw_responses_stream(mut stream: SseStream) -> SseStream {
+    Box::pin(async_stream::stream! {
+        let mut terminated = false;
+        while let Some(item) = stream.next().await {
+            let event = match item {
+                Ok(event) => event,
+                Err(error) => {
+                    yield Err(error);
+                    return;
+                }
+            };
+            if event.data.trim() == "[DONE]" {
+                terminated = true;
+                yield Ok(event);
+                break;
+            }
+            let value = match parse_json_event(&event.data) {
+                Ok(value) => value,
+                Err(error) => {
+                    yield Err(error);
+                    return;
+                }
+            };
+            let event_name = event
+                .event
+                .as_deref()
+                .filter(|name| !name.is_empty() && *name != "message")
+                .map(str::to_owned)
+                .or_else(|| value.get("type").and_then(Value::as_str).map(str::to_owned))
+                .unwrap_or_else(|| "message".to_owned());
+            let is_terminal = matches!(
+                event_name.as_str(),
+                "response.completed" | "response.failed" | "response.incomplete" | "error"
+            );
+            yield Ok(event);
+            if is_terminal {
+                terminated = true;
+                break;
+            }
+        }
+        if !terminated {
+            yield Err(Error::Transport("SSE stream ended before a terminal event".to_owned()));
+        }
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PromptStreamKind {
+    Chat,
+    Responses,
+}
+
+fn prompt_stream_kind(path: &str) -> Option<PromptStreamKind> {
+    let path = path.split('?').next().unwrap_or(path).trim_matches('/');
+    match path {
+        "chat/completions" => Some(PromptStreamKind::Chat),
+        "responses" => Some(PromptStreamKind::Responses),
+        _ => None,
+    }
 }
 
 #[derive(Debug)]

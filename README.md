@@ -134,6 +134,16 @@ OAuth, activity, and broadcast configuration use only the control plane.
 Authenticated low-level calls reject absolute and scheme-relative paths.
 Trust and status URLs are fetched by a credential-free transport path.
 
+SDK-owned transports never follow redirects. A client supplied through
+`ClientBuilder::http_client` is used verbatim for general API traffic because
+Reqwest clients are immutable; its redirects, cookies, and default headers are
+therefore a caller-owned trust boundary. Configure that client with
+`reqwest::redirect::Policy::none()` and without ambient credentials when the
+same guarantee is required. Credential-free SDK operations still use their
+separate owned transport. Standalone JWKS verification also defaults to a
+fresh non-redirecting client, while an explicitly supplied verifier client is
+used verbatim.
+
 ## Retries and billing safety
 
 The SDK retries connection failures, timeouts, `429`, and retryable `5xx`
