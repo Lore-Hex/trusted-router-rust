@@ -389,19 +389,24 @@ mod tests {
         data: Option<String>,
         error: Option<String>,
         callbacks: usize,
+        wire_path: String,
     }
 
     fn invoke_stream(path: &str, sse_body: &str, callback: TrStreamCallback) -> StreamOutcome {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
-        let expected_path = format!("POST /v1{path} ");
         let sse_body = sse_body.to_owned();
         let server = thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
             let mut request = [0_u8; 8192];
             let read = socket.read(&mut request).unwrap();
             let request = String::from_utf8_lossy(&request[..read]);
-            assert!(request.starts_with(&expected_path), "request = {request:?}");
+            let wire_path = request
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .expect("HTTP request line should contain a path")
+                .to_owned();
             write!(
                 socket,
                 "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -409,6 +414,7 @@ mod tests {
                 sse_body
             )
             .unwrap();
+            wire_path
         });
 
         let key = CString::new("sk-c-stream-test").unwrap();
@@ -443,19 +449,22 @@ mod tests {
                 .to_string_lossy()
                 .into_owned()
         });
+        // Join before constructing the outcome so the request's resolved wire
+        // path is available to route-normalisation assertions.
+        let wire_path = server.join().unwrap();
         let outcome = StreamOutcome {
             code: result.code,
             http_status: result.http_status,
             data,
             error,
             callbacks: callbacks.load(Ordering::SeqCst),
+            wire_path,
         };
         // SAFETY: each SDK-owned object is released exactly once.
         unsafe {
             tr_result_free(result);
             tr_client_free(client);
         }
-        server.join().unwrap();
         outcome
     }
 
@@ -627,6 +636,62 @@ mod tests {
         );
         assert_eq!(responses.code, 0);
         assert_eq!(responses.callbacks, 1);
+    }
+
+    #[test]
+    fn c_abi_semantic_prompt_routes_cannot_bypass_validation() {
+        let chat_dot_segment = invoke_stream(
+            "/x/../chat/completions",
+            "data: {not-json}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(chat_dot_segment.wire_path, "/v1/chat/completions");
+        assert_eq!(chat_dot_segment.code, 10);
+        assert_eq!(chat_dot_segment.callbacks, 0);
+
+        let responses_dot_segment = invoke_stream(
+            "/x/../responses",
+            "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"x\"}\n\n",
+            Some(continue_stream_callback),
+        );
+        assert_eq!(responses_dot_segment.wire_path, "/v1/responses");
+        assert_eq!(responses_dot_segment.code, 8);
+        assert_eq!(responses_dot_segment.callbacks, 1);
+
+        for spelling in [
+            "/chat/%63ompletions",
+            "/chat/completion%73",
+            "/chat%2fcompletions",
+            "/CHAT/COMPLETIONS",
+            "/chat//completions",
+        ] {
+            let malformed = invoke_stream(
+                spelling,
+                "data: {not-json}\n\n",
+                Some(continue_stream_callback),
+            );
+            assert_eq!(malformed.code, 10, "chat route spelling {spelling}");
+            assert_eq!(malformed.callbacks, 0, "chat route spelling {spelling}");
+        }
+
+        for spelling in [
+            "/%72esponses",
+            "/response%73",
+            "/responses%2f",
+            "/RESPONSES",
+            "/responses//",
+        ] {
+            let truncated = invoke_stream(
+                spelling,
+                "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"x\"}\n\n",
+                Some(continue_stream_callback),
+            );
+            assert_eq!(truncated.code, 8, "Responses route spelling {spelling}");
+            assert_eq!(
+                truncated.callbacks, 1,
+                "Responses route spelling {spelling}"
+            );
+        }
     }
 
     #[test]

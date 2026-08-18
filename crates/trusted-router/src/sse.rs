@@ -2,6 +2,7 @@
 
 use crate::client::{CallOptions, Client, Plane};
 use crate::transport::headers::ensure_idempotency_key;
+use crate::transport::routing::semantic_route;
 use crate::types::{ChatCompletionChunk, ChatRequest, ResponseEvent, ResponsesRequest};
 use crate::{Error, Result};
 use eventsource_stream::{EventStreamError, Eventsource};
@@ -113,14 +114,28 @@ impl Client {
         body: Value,
         options: CallOptions,
     ) -> Result<SseStream> {
+        let (stream, _) = self.open_raw_sse(path, body, options).await?;
+        Ok(stream)
+    }
+
+    async fn open_raw_sse(
+        &self,
+        path: &str,
+        body: Value,
+        options: CallOptions,
+    ) -> Result<(SseStream, String)> {
         let options = ensure_idempotency_key(options);
         let response = self
             .open_stream(Plane::Inference, Method::POST, path, body, options.clone())
             .await?;
-        Ok(Box::pin(parse_sse(
-            response,
-            options.timeout.or(self.timeout),
-        )))
+        // Classify the URL attached to the actual response, after Url::join
+        // has resolved dot segments (and after any caller-owned injected
+        // transport redirect). The shared semantic fold then mirrors gateway
+        // decoding of ASCII escapes. Validation never reasons from the raw
+        // caller spelling.
+        let route = semantic_route(response.url().path());
+        let stream = parse_sse(response, options.timeout.or(self.timeout));
+        Ok((stream, route))
     }
 
     /// Opens raw SSE events while applying the strict terminal, JSON, and API
@@ -132,8 +147,8 @@ impl Client {
         body: Value,
         options: CallOptions,
     ) -> Result<SseStream> {
-        let stream = self.raw_sse(path, body, options).await?;
-        match prompt_stream_kind(path) {
+        let (stream, route) = self.open_raw_sse(path, body, options).await?;
+        match prompt_stream_kind(&route) {
             Some(PromptStreamKind::Chat) => Ok(validate_raw_chat_stream(stream)),
             Some(PromptStreamKind::Responses) => Ok(validate_raw_responses_stream(stream)),
             None => Ok(stream),
@@ -348,12 +363,14 @@ enum PromptStreamKind {
     Responses,
 }
 
-fn prompt_stream_kind(path: &str) -> Option<PromptStreamKind> {
-    let path = path.split('?').next().unwrap_or(path).trim_matches('/');
-    match path {
-        "chat/completions" => Some(PromptStreamKind::Chat),
-        "responses" => Some(PromptStreamKind::Responses),
-        _ => None,
+fn prompt_stream_kind(route: &str) -> Option<PromptStreamKind> {
+    let route = route.trim_start_matches('/');
+    if route == "chat/completions" || route.ends_with("/chat/completions") {
+        Some(PromptStreamKind::Chat)
+    } else if route == "responses" || route.ends_with("/responses") {
+        Some(PromptStreamKind::Responses)
+    } else {
+        None
     }
 }
 

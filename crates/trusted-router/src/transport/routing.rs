@@ -95,3 +95,50 @@ pub(crate) fn inference_base_urls(primary: &Url) -> Vec<Url> {
     }
     out
 }
+
+/// Folds an already-resolved URL path to the semantic route the gateway sees:
+/// ASCII percent escapes decoded, ASCII case folded, repeated separators
+/// collapsed, and a trailing separator dropped.
+///
+/// This is deliberately the single route classifier shared by telemetry and
+/// strict prompt-stream validation. Both callers first resolve through
+/// [`Url`], so dot segments are handled by the same URL machinery that builds
+/// the wire request rather than by a second, divergent path normalizer.
+pub(crate) fn semantic_route(path: &str) -> String {
+    let decoded = percent_decode_ascii(path);
+    let mut route = String::with_capacity(decoded.len());
+    for character in decoded.chars() {
+        let character = character.to_ascii_lowercase();
+        if character == '/' && route.ends_with('/') {
+            continue;
+        }
+        route.push(character);
+    }
+    while route.len() > 1 && route.ends_with('/') {
+        route.pop();
+    }
+    route
+}
+
+/// Decodes `%XX` escapes for semantic comparison only. Malformed escapes stay
+/// literal, and decoded non-ASCII bytes cannot match an ASCII SDK route.
+fn percent_decode_ascii(path: &str) -> String {
+    let bytes = path.as_bytes();
+    let mut out = String::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if byte == b'%' && index + 2 < bytes.len() {
+            let high = char::from(bytes[index + 1]).to_digit(16);
+            let low = char::from(bytes[index + 2]).to_digit(16);
+            if let (Some(high), Some(low)) = (high, low) {
+                out.push(char::from_u32(high * 16 + low).unwrap_or(char::REPLACEMENT_CHARACTER));
+                index += 3;
+                continue;
+            }
+        }
+        out.push(char::from(byte));
+        index += 1;
+    }
+    out
+}
