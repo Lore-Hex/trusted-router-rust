@@ -18,6 +18,7 @@ use http::Method;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::time::Duration;
 use url::Url;
 
@@ -58,6 +59,8 @@ pub struct ClientBuilder {
     pub(crate) telemetry: Option<bool>,
     pub(crate) headers: BTreeMap<String, String>,
     pub(crate) http_client: Option<reqwest::Client>,
+    pub(crate) root_certificate_pems: Vec<Vec<u8>>,
+    pub(crate) host_resolutions: BTreeMap<String, SocketAddr>,
 }
 
 impl Default for ClientBuilder {
@@ -73,6 +76,8 @@ impl Default for ClientBuilder {
             telemetry: None,
             headers: BTreeMap::new(),
             http_client: None,
+            root_certificate_pems: Vec::new(),
+            host_resolutions: BTreeMap::new(),
         }
     }
 }
@@ -157,6 +162,26 @@ impl ClientBuilder {
         self
     }
 
+    /// Adds a PEM-encoded root certificate to SDK-owned HTTP transports.
+    ///
+    /// This applies both to the default API transport and to the isolated
+    /// credential-free transport used for public metadata and OAuth. It does
+    /// not alter a caller-supplied [`reqwest::Client`].
+    pub fn root_certificate_pem(mut self, value: impl Into<Vec<u8>>) -> Self {
+        self.root_certificate_pems.push(value.into());
+        self
+    }
+
+    /// Overrides DNS resolution for SDK-owned HTTP transports.
+    ///
+    /// This is useful for private deployments and local TLS test servers that
+    /// must retain their logical hostname for certificate verification. It
+    /// does not alter a caller-supplied [`reqwest::Client`].
+    pub fn resolve_hostname(mut self, host: impl Into<String>, address: SocketAddr) -> Self {
+        self.host_resolutions.insert(host.into(), address);
+        self
+    }
+
     /// Validates configuration and constructs the client.
     pub fn build(self) -> Result<Client> {
         let api_base_url = parse_base_url(&self.api_base_url, "inference")?;
@@ -167,13 +192,14 @@ impl ClientBuilder {
             &self.control_base_url,
             &|name| std::env::var(name).ok(),
         );
-        let http = match self.http_client {
-            Some(client) => client,
-            None => reqwest::Client::builder()
-                .user_agent(format!("trusted-router-rust/{}", env!("CARGO_PKG_VERSION")))
-                .build()
-                .map_err(|error| Error::InvalidConfiguration(error.to_string()))?,
-        };
+        // Public metadata and credential-free OAuth/attestation requests must
+        // not inherit defaults, cookies, or redirect policy from an injected
+        // client. They always use this SDK-owned, non-redirecting transport.
+        let credential_free_http =
+            build_owned_http(&self.root_certificate_pems, &self.host_resolutions)?;
+        let http = self
+            .http_client
+            .unwrap_or_else(|| credential_free_http.clone());
         Ok(Client {
             api_key: self.api_key,
             api_base_urls: if self.regional_failover {
@@ -189,8 +215,30 @@ impl ClientBuilder {
             telemetry,
             headers: self.headers,
             http,
+            credential_free_http,
         })
     }
+}
+
+fn build_owned_http(
+    root_certificate_pems: &[Vec<u8>],
+    host_resolutions: &BTreeMap<String, SocketAddr>,
+) -> Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .user_agent(format!("trusted-router-rust/{}", env!("CARGO_PKG_VERSION")))
+        .redirect(reqwest::redirect::Policy::none());
+    for pem in root_certificate_pems {
+        let certificate = reqwest::Certificate::from_pem(pem).map_err(|error| {
+            Error::InvalidConfiguration(format!("invalid root certificate PEM: {error}"))
+        })?;
+        builder = builder.add_root_certificate(certificate);
+    }
+    for (host, address) in host_resolutions {
+        builder = builder.resolve(host, *address);
+    }
+    builder
+        .build()
+        .map_err(|error| Error::InvalidConfiguration(error.to_string()))
 }
 
 /// Asynchronous `TrustedRouter` SDK client.
@@ -212,6 +260,7 @@ pub struct Client {
     pub(crate) telemetry: bool,
     pub(crate) headers: BTreeMap<String, String>,
     pub(crate) http: reqwest::Client,
+    pub(crate) credential_free_http: reqwest::Client,
 }
 
 impl Client {
@@ -287,12 +336,13 @@ impl Client {
         &self,
         request: ResponsesRequest,
     ) -> Result<ResponseInputTokens> {
+        let options = ensure_idempotency_key(request.call_options.clone());
         self.request(
             Plane::Inference,
             Method::POST,
             "/responses/input_tokens",
             Some(crate::types::with_stream(&request, false)?),
-            request.call_options.clone(),
+            options,
         )
         .await
     }
@@ -426,7 +476,7 @@ impl Client {
             Method::POST,
             "/auth/logout",
             None,
-            CallOptions::default(),
+            ensure_idempotency_key(CallOptions::default()),
         )
         .await
     }
@@ -580,7 +630,7 @@ impl Client {
             }
             _ => "/attestation".to_owned(),
         };
-        self.request_bytes(
+        self.credential_free_plane_bytes(
             Plane::Inference,
             Method::GET,
             &path,

@@ -4,11 +4,12 @@ use crate::client::{CallOptions, Client, Plane};
 use crate::transport::headers::ensure_idempotency_key;
 use crate::types::{ChatCompletionChunk, ChatRequest, ResponseEvent, ResponsesRequest};
 use crate::{Error, Result};
-use eventsource_stream::Eventsource;
+use eventsource_stream::{EventStreamError, Eventsource};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use http::Method;
 use serde_json::Value;
+use std::fmt;
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -56,13 +57,7 @@ impl Client {
             .await?;
         let idle_timeout = options.timeout.or(self.timeout);
         let stream = parse_sse(response, idle_timeout);
-        Ok(Box::pin(stream.filter_map(|item| async move {
-            match item {
-                Ok(event) if event.data == "[DONE]" => None,
-                Ok(event) => Some(parse_json_event(&event.data)),
-                Err(error) => Some(Err(error)),
-            }
-        })))
+        Ok(validate_chat_stream(stream))
     }
 
     /// Opens typed Chat Completions chunks.
@@ -108,27 +103,7 @@ impl Client {
             .await?;
         let idle_timeout = options.timeout.or(self.timeout);
         let stream = parse_sse(response, idle_timeout);
-        Ok(Box::pin(stream.filter_map(|item| async move {
-            match item {
-                Ok(event) if event.data == "[DONE]" => None,
-                Ok(event) => {
-                    let value = match parse_json_event(&event.data) {
-                        Ok(value) => value,
-                        Err(error) => return Some(Err(error)),
-                    };
-                    let event_name = event
-                        .event
-                        .filter(|name| !name.is_empty() && name != "message")
-                        .or_else(|| value.get("type").and_then(Value::as_str).map(str::to_owned))
-                        .unwrap_or_else(|| "message".to_owned());
-                    Some(Ok(ResponseEvent {
-                        event: event_name,
-                        data: value,
-                    }))
-                }
-                Err(error) => Some(Err(error)),
-            }
-        })))
+        Ok(validate_responses_stream(stream))
     }
 
     /// Opens a raw SSE stream for a supported inference route.
@@ -150,34 +125,144 @@ impl Client {
 }
 
 fn parse_sse(response: reqwest::Response, idle_timeout: Option<Duration>) -> SseStream {
-    let mut source = response.bytes_stream().eventsource();
-    Box::pin(async_stream::stream! {
+    let mut bytes = Box::pin(response.bytes_stream());
+    // Apply the idle deadline to raw body activity, not parsed events. SSE
+    // comments and partial frames are valid heartbeats and must reset it.
+    let wire = async_stream::stream! {
         loop {
             let next = match idle_timeout {
                 Some(duration) if duration != Duration::ZERO => {
-                    if let Ok(value) = tokio::time::timeout(duration, source.next()).await {
-                        value
-                    } else {
-                        yield Err(Error::Timeout("SSE stream idle deadline exceeded".to_owned()));
+                    let Ok(value) = tokio::time::timeout(duration, bytes.next()).await else {
+                        yield Err(SseWireError::IdleTimeout);
                         break;
-                    }
+                    };
+                    value
                 }
-                _ => source.next().await,
+                _ => bytes.next().await,
             };
             match next {
-                Some(Ok(event)) => yield Ok(SseEvent {
-                    event: Some(event.event),
-                    data: event.data,
-                    id: Some(event.id),
-                }),
+                Some(Ok(chunk)) => yield Ok(chunk),
                 Some(Err(error)) => {
-                    yield Err(Error::Transport(format!("invalid SSE stream: {error}")));
+                    yield Err(SseWireError::Transport(error));
                     break;
                 }
                 None => break,
             }
         }
+    };
+    let mut source = Box::pin(wire.eventsource());
+    Box::pin(async_stream::stream! {
+        while let Some(next) = source.next().await {
+            match next {
+                Ok(event) => yield Ok(SseEvent {
+                    event: Some(event.event),
+                    data: event.data,
+                    id: Some(event.id),
+                }),
+                Err(EventStreamError::Transport(SseWireError::IdleTimeout)) => {
+                    yield Err(Error::Timeout("SSE stream idle deadline exceeded".to_owned()));
+                    break;
+                }
+                Err(EventStreamError::Transport(SseWireError::Transport(error))) => {
+                    yield Err(crate::transport::policy::map_reqwest_error(error));
+                    break;
+                }
+                Err(error) => {
+                    yield Err(Error::Transport(format!("invalid SSE stream: {error}")));
+                    break;
+                }
+            }
+        }
     })
+}
+
+fn validate_chat_stream(mut stream: SseStream) -> JsonStream {
+    Box::pin(async_stream::stream! {
+        let mut terminated = false;
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(event) if event.data.trim() == "[DONE]" => {
+                    terminated = true;
+                    break;
+                }
+                Ok(event) => match parse_json_event(&event.data) {
+                    Ok(value) => yield Ok(value),
+                    Err(error) => {
+                        yield Err(error);
+                        return;
+                    }
+                },
+                Err(error) => {
+                    yield Err(error);
+                    return;
+                }
+            }
+        }
+        if !terminated {
+            yield Err(Error::Transport("SSE stream ended before [DONE]".to_owned()));
+        }
+    })
+}
+
+fn validate_responses_stream(mut stream: SseStream) -> ResponseEventStream {
+    Box::pin(async_stream::stream! {
+        let mut terminated = false;
+        while let Some(item) = stream.next().await {
+            let event = match item {
+                Ok(event) => event,
+                Err(error) => {
+                    yield Err(error);
+                    return;
+                }
+            };
+            if event.data.trim() == "[DONE]" {
+                terminated = true;
+                break;
+            }
+            let value = match parse_json_event(&event.data) {
+                Ok(value) => value,
+                Err(error) => {
+                    yield Err(error);
+                    return;
+                }
+            };
+            let event_name = event
+                .event
+                .filter(|name| !name.is_empty() && name != "message")
+                .or_else(|| value.get("type").and_then(Value::as_str).map(str::to_owned))
+                .unwrap_or_else(|| "message".to_owned());
+            let is_terminal = matches!(
+                event_name.as_str(),
+                "response.completed" | "response.failed" | "response.incomplete" | "error"
+            );
+            yield Ok(ResponseEvent {
+                event: event_name,
+                data: value,
+            });
+            if is_terminal {
+                terminated = true;
+                break;
+            }
+        }
+        if !terminated {
+            yield Err(Error::Transport("SSE stream ended before a terminal event".to_owned()));
+        }
+    })
+}
+
+#[derive(Debug)]
+enum SseWireError {
+    Transport(reqwest::Error),
+    IdleTimeout,
+}
+
+impl fmt::Display for SseWireError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Transport(error) => error.fmt(formatter),
+            Self::IdleTimeout => formatter.write_str("SSE wire idle deadline exceeded"),
+        }
+    }
 }
 
 fn parse_json_event(data: &str) -> Result<Value> {

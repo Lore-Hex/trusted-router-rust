@@ -89,6 +89,31 @@ pub unsafe extern "C" fn tr_request_json(
     workspace_id: *const c_char,
     idempotency_key: *const c_char,
 ) -> TrResult {
+    unsafe {
+        tr_request_json_with_policy(
+            client,
+            plane,
+            method,
+            path,
+            body_json,
+            workspace_id,
+            idempotency_key,
+            false,
+        )
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn tr_request_json_with_policy(
+    client: *mut TrClient,
+    plane: c_int,
+    method: *const c_char,
+    path: *const c_char,
+    body_json: *const c_char,
+    workspace_id: *const c_char,
+    idempotency_key: *const c_char,
+    auto_idempotency: bool,
+) -> TrResult {
     guarded(|| {
         let client = unsafe { client_ref(client) }?;
         let method = unsafe { required_string(method, "method") }?;
@@ -99,7 +124,10 @@ pub unsafe extern "C" fn tr_request_json(
             .map(|value| serde_json::from_str(&value))
             .transpose()
             .map_err(|error| local_error(format!("invalid body JSON: {error}")))?;
-        let options = unsafe { call_options(workspace_id, idempotency_key) }?;
+        let mut options = unsafe { call_options(workspace_id, idempotency_key) }?;
+        if auto_idempotency && options.idempotency_key.is_none() {
+            options.idempotency_key = Some(generated_idempotency_key());
+        }
         let plane = match plane {
             0 => Plane::Inference,
             1 => Plane::Control,
@@ -122,7 +150,7 @@ pub unsafe extern "C" fn tr_chat_completions(
     idempotency_key: *const c_char,
 ) -> TrResult {
     unsafe {
-        tr_request_json(
+        tr_request_json_with_policy(
             client,
             0,
             c"POST".as_ptr(),
@@ -130,6 +158,7 @@ pub unsafe extern "C" fn tr_chat_completions(
             request_json,
             workspace_id,
             idempotency_key,
+            true,
         )
     }
 }
@@ -146,7 +175,7 @@ pub unsafe extern "C" fn tr_responses(
     idempotency_key: *const c_char,
 ) -> TrResult {
     unsafe {
-        tr_request_json(
+        tr_request_json_with_policy(
             client,
             0,
             c"POST".as_ptr(),
@@ -154,6 +183,7 @@ pub unsafe extern "C" fn tr_responses(
             request_json,
             workspace_id,
             idempotency_key,
+            true,
         )
     }
 }
@@ -185,7 +215,10 @@ pub unsafe extern "C" fn tr_stream_json(
         if let Some(object) = body.as_object_mut() {
             object.insert("stream".to_owned(), Value::Bool(true));
         }
-        let options = unsafe { call_options(workspace_id, idempotency_key) }?;
+        let mut options = unsafe { call_options(workspace_id, idempotency_key) }?;
+        if options.idempotency_key.is_none() {
+            options.idempotency_key = Some(generated_idempotency_key());
+        }
         let callback = callback.ok_or_else(|| local_error("callback is required".to_owned()))?;
         client.inner.raw_sse(&path, body, options, |event| {
             let value = serde_json::json!({
@@ -315,6 +348,10 @@ fn local_error(message: String) -> Error {
     Error::InvalidConfiguration(message)
 }
 
+fn generated_idempotency_key() -> String {
+    format!("tr-req-{}", uuid::Uuid::new_v4().simple())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,20 +364,45 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
-            let (mut socket, _) = listener.accept().unwrap();
-            let mut request = [0_u8; 8192];
-            let read = socket.read(&mut request).unwrap();
-            let text = String::from_utf8_lossy(&request[..read]);
-            assert!(text.starts_with("POST /v1/chat/completions"));
-            assert!(text.contains("authorization: Bearer sk-c-test"));
-            let body = r#"{"id":"chat_c","choices":[{"index":0,"message":{"role":"assistant","content":"PONG"}}]}"#;
-            write!(
-                socket,
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            )
-            .unwrap();
+            let mut keys = Vec::new();
+            for attempt in 0..2 {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut request = [0_u8; 8192];
+                let read = socket.read(&mut request).unwrap();
+                let text = String::from_utf8_lossy(&request[..read]);
+                assert!(text.starts_with("POST /v1/chat/completions"));
+                assert!(text.contains("authorization: Bearer sk-c-test"));
+                let key = text
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("idempotency-key")
+                            .then(|| value.trim().to_owned())
+                    })
+                    .expect("C ABI high-level call should mint an idempotency key");
+                keys.push(key);
+
+                if attempt == 0 {
+                    let body = r#"{"error":{"message":"retry"}}"#;
+                    write!(
+                        socket,
+                        "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .unwrap();
+                } else {
+                    let body = r#"{"id":"chat_c","choices":[{"index":0,"message":{"role":"assistant","content":"PONG"}}]}"#;
+                    write!(
+                        socket,
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .unwrap();
+                }
+            }
+            keys
         });
 
         let key = CString::new("sk-c-test").unwrap();
@@ -365,7 +427,10 @@ mod tests {
             tr_result_free(result);
             tr_client_free(client);
         }
-        server.join().unwrap();
+        let keys = server.join().unwrap();
+        assert_eq!(keys.len(), 2);
+        assert_eq!(keys[0], keys[1]);
+        assert!(keys[0].starts_with("tr-req-"));
     }
 
     #[test]

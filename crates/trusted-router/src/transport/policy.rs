@@ -56,11 +56,11 @@ impl FailureDisposition {
 
     /// Decision for a transport-level failure (no HTTP response at all).
     ///
-    /// A transport failure means no server saw the request, so moving to
-    /// another domain cannot double-execute anything: `failover` is
-    /// unconditionally true (invariant 8). A pinned client still cannot move
-    /// because its candidate list has length one — the list is the gate, not a
-    /// second flag.
+    /// A transport failure may occur before or after a server accepted the
+    /// request. `failover` marks a potential domain move; the engine's
+    /// replay-safety gate must pass before this disposition can be retried.
+    /// A pinned client still cannot move because its candidate list has length
+    /// one — the list is the location gate, not a second policy flag.
     pub(crate) fn from_transport(error: Error) -> Self {
         let retry = retryable_transport(&error);
         Self {
@@ -101,7 +101,7 @@ fn retryable_status(status: u16, headers: &HeaderMap) -> bool {
     if let Some(verdict) = should_retry_verdict(headers) {
         return verdict;
     }
-    status == 429 || matches!(status, 500 | 502 | 503 | 504)
+    status == 429 || status >= 500
 }
 
 pub(crate) fn retryable_transport(error: &Error) -> bool {
@@ -161,7 +161,7 @@ pub(crate) fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
 }
 
 /// Transport-error classification: timeout stays a timeout, everything else is
-/// a transport failure the retry predicates treat as "no server saw it".
+/// a transport failure whose replay safety is decided separately by the engine.
 pub(crate) fn map_reqwest_error(error: reqwest::Error) -> Error {
     if error.is_timeout() {
         Error::Timeout(error.to_string())

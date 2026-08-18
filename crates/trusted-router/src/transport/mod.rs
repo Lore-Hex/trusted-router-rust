@@ -45,9 +45,10 @@
 //! 7. `regional_failover` governs WHERE, never WHETHER: opting out collapses
 //!    the candidate list to length one, and a pinned client still retries in
 //!    place — `regional_failover_false_pins_the_client_to_one_host`.
-//! 8. Transport errors (no server saw the request) may always move hosts
-//!    within the flag gating. Rust's mechanism: the transport arm marks
-//!    failover unconditionally and the single-candidate list is the pin —
+//! 8. Transport errors are ambiguous about server acceptance, so retries and
+//!    host moves require a replay-safe method or idempotency key. Rust's
+//!    transport arm marks a potential failover, then the replay gate and the
+//!    candidate list decide whether it can occur —
 //!    `regional_failover_false_pins_the_client_to_one_host`,
 //!    `retries_retryable_status_then_succeeds` (single-candidate control
 //!    plane retries in place).
@@ -74,6 +75,7 @@ use crate::{Error, Result};
 use http::Method;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use std::time::Duration;
 use url::Url;
 
 impl Client {
@@ -109,6 +111,49 @@ impl Client {
             .await
     }
 
+    /// Executes a plane request on the SDK-owned credential-free transport.
+    /// This is used for OAuth exchange and attestation so an injected
+    /// reqwest client's default headers, cookies, and redirect policy cannot
+    /// cross the credential boundary.
+    pub(crate) async fn credential_free_plane_bytes(
+        &self,
+        plane: Plane,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+        mut options: CallOptions,
+    ) -> Result<Vec<u8>> {
+        options.api_key = Some(String::new());
+        options.workspace_id = Some(String::new());
+        options.headers.retain(|name, _| !credential_header(name));
+        self.credential_free_clone()
+            .request_bytes(plane, method, path, body, options)
+            .await
+    }
+
+    pub(crate) async fn credential_free_control_request<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+        options: CallOptions,
+    ) -> Result<T> {
+        let bytes = self
+            .credential_free_plane_bytes(Plane::Control, method, path, body, options)
+            .await?;
+        serde_json::from_slice(&bytes).map_err(|error| Error::Serialization(error.to_string()))
+    }
+
+    fn credential_free_clone(&self) -> Self {
+        let mut client = self.clone();
+        client.api_key = None;
+        client.workspace_id = None;
+        client.telemetry = false;
+        client.headers.retain(|name, _| !credential_header(name));
+        client.http = self.credential_free_http.clone();
+        client
+    }
+
     /// DELIBERATELY single-shot, credential-free, HTTPS-or-loopback-only
     /// fetch for public metadata (trust releases, status documents).
     ///
@@ -131,18 +176,44 @@ impl Client {
                 "public metadata URL must use HTTPS".to_owned(),
             ));
         }
-        let response = self
-            .http
+        let request = self
+            .credential_free_http
             .get(url)
             .header(
                 "user-agent",
                 format!("trusted-router-rust/{}", env!("CARGO_PKG_VERSION")),
             )
-            .send()
-            .await
+            .build()
             .map_err(policy::map_reqwest_error)?;
+        let response = match self.timeout {
+            Some(duration) if duration != Duration::ZERO => {
+                tokio::time::timeout(duration, self.credential_free_http.execute(request))
+                    .await
+                    .map_err(|_| {
+                        Error::Timeout(
+                            "public metadata response headers deadline exceeded".to_owned(),
+                        )
+                    })?
+                    .map_err(policy::map_reqwest_error)?
+            }
+            _ => self
+                .credential_free_http
+                .execute(request)
+                .await
+                .map_err(policy::map_reqwest_error)?,
+        };
         let status = response.status();
-        let bytes = response.bytes().await.map_err(policy::map_reqwest_error)?;
+        let bytes = match self.timeout {
+            Some(duration) if duration != Duration::ZERO => {
+                tokio::time::timeout(duration, response.bytes())
+                    .await
+                    .map_err(|_| {
+                        Error::Timeout("public metadata response body deadline exceeded".to_owned())
+                    })?
+                    .map_err(policy::map_reqwest_error)?
+            }
+            _ => response.bytes().await.map_err(policy::map_reqwest_error)?,
+        };
         if !status.is_success() {
             return Err(classify_api_error(
                 status.as_u16(),
@@ -152,4 +223,18 @@ impl Client {
         }
         serde_json::from_slice(&bytes).map_err(|error| Error::Serialization(error.to_string()))
     }
+}
+
+fn credential_header(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "authorization"
+            | "proxy-authorization"
+            | "cookie"
+            | "cookie2"
+            | "x-api-key"
+            | "x-trustedrouter-workspace"
+            | "idempotency-key"
+            | "x-tr-client"
+    )
 }
