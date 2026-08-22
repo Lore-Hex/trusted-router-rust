@@ -1,6 +1,7 @@
 //! Server-sent event streaming for Chat Completions and Responses.
 
 use crate::client::{CallOptions, Client, Plane};
+use crate::telemetry::{self, ErrorClass, StreamRecorder};
 use crate::transport::headers::ensure_idempotency_key;
 use crate::transport::routing::{
     semantic_request_route, semantic_route, semantic_route_relative_to_base,
@@ -49,7 +50,7 @@ impl Client {
                 .entry("stream_options")
                 .or_insert_with(|| serde_json::json!({"include_usage": true}));
         }
-        let response = self
+        let (response, recorder) = self
             .open_stream(
                 Plane::Inference,
                 Method::POST,
@@ -59,8 +60,8 @@ impl Client {
             )
             .await?;
         let idle_timeout = options.timeout.or(self.timeout);
-        let stream = parse_sse(response, idle_timeout);
-        Ok(validate_chat_stream(stream))
+        let stream = parse_sse(response, idle_timeout, recorder.clone());
+        Ok(validate_chat_stream(stream, recorder))
     }
 
     /// Opens typed Chat Completions chunks.
@@ -95,7 +96,7 @@ impl Client {
     pub async fn responses_stream(&self, request: ResponsesRequest) -> Result<ResponseEventStream> {
         let options = ensure_idempotency_key(request.call_options.clone());
         let body = crate::types::with_stream(&request, true)?;
-        let response = self
+        let (response, recorder) = self
             .open_stream(
                 Plane::Inference,
                 Method::POST,
@@ -105,8 +106,8 @@ impl Client {
             )
             .await?;
         let idle_timeout = options.timeout.or(self.timeout);
-        let stream = parse_sse(response, idle_timeout);
-        Ok(validate_responses_stream(stream))
+        let stream = parse_sse(response, idle_timeout, recorder.clone());
+        Ok(validate_responses_stream(stream, recorder))
     }
 
     /// Opens a raw SSE stream for a supported inference route.
@@ -116,7 +117,7 @@ impl Client {
         body: Value,
         options: CallOptions,
     ) -> Result<SseStream> {
-        let (stream, _) = self.open_raw_sse(path, body, options).await?;
+        let (stream, _, _) = self.open_raw_sse(path, body, options).await?;
         Ok(stream)
     }
 
@@ -125,9 +126,9 @@ impl Client {
         path: &str,
         body: Value,
         options: CallOptions,
-    ) -> Result<(SseStream, url::Url)> {
+    ) -> Result<(SseStream, url::Url, Option<StreamRecorder>)> {
         let options = ensure_idempotency_key(options);
-        let response = self
+        let (response, recorder) = self
             .open_stream(Plane::Inference, Method::POST, path, body, options.clone())
             .await?;
         // Retain the URL attached to the actual response, after Url::join has
@@ -135,8 +136,8 @@ impl Client {
         // validated_raw_sse combines it with the pre-send logical route so a
         // redirect can tighten validation but never downgrade it.
         let response_url = response.url().clone();
-        let stream = parse_sse(response, options.timeout.or(self.timeout));
-        Ok((stream, response_url))
+        let stream = parse_sse(response, options.timeout.or(self.timeout), recorder.clone());
+        Ok((stream, response_url, recorder))
     }
 
     /// Opens raw SSE events while applying the strict terminal, JSON, and API
@@ -154,11 +155,13 @@ impl Client {
         // even if an injected Reqwest client follows a redirect to a different
         // path, so `/chat/completions -> /capture` cannot shed strict parsing.
         let intended_kind = prompt_stream_kind(&semantic_request_route(path));
-        let (stream, response_url) = self.open_raw_sse(path, body, options).await?;
+        let (stream, response_url, recorder) = self.open_raw_sse(path, body, options).await?;
         let final_kind = self.response_prompt_stream_kind(&response_url);
         match intended_kind.or(final_kind) {
-            Some(PromptStreamKind::Chat) => Ok(validate_raw_chat_stream(stream)),
-            Some(PromptStreamKind::Responses) => Ok(validate_raw_responses_stream(stream)),
+            Some(PromptStreamKind::Chat) => Ok(validate_raw_chat_stream(stream, recorder)),
+            Some(PromptStreamKind::Responses) => {
+                Ok(validate_raw_responses_stream(stream, recorder))
+            }
             None => Ok(stream),
         }
     }
@@ -176,7 +179,25 @@ impl Client {
     }
 }
 
-fn parse_sse(response: reqwest::Response, idle_timeout: Option<Duration>) -> SseStream {
+/// Marks a stream complete for telemetry, if the call is being recorded.
+fn complete(recorder: Option<&StreamRecorder>) {
+    if let Some(recorder) = recorder {
+        recorder.on_complete();
+    }
+}
+
+/// Decodes the SSE wire. This is the one place TTFT is observable (§6.1):
+/// the first decoded event stamps `ttft_ms`; a body failure after it is
+/// `stream_broken` (or a stalled idle timeout), before it a plain transport
+/// failure of the attempt that opened the stream; end of body completes the
+/// record. Protocol validators above this layer complete it earlier on a
+/// terminal frame, and dropping every handle before either completes it
+/// records `aborted`.
+fn parse_sse(
+    response: reqwest::Response,
+    idle_timeout: Option<Duration>,
+    recorder: Option<StreamRecorder>,
+) -> SseStream {
     let mut bytes = Box::pin(response.bytes_stream());
     // Apply the idle deadline to raw body activity, not parsed events. SSE
     // comments and partial frames are valid heartbeats and must reset it.
@@ -206,35 +227,55 @@ fn parse_sse(response: reqwest::Response, idle_timeout: Option<Duration>) -> Sse
     Box::pin(async_stream::stream! {
         while let Some(next) = source.next().await {
             match next {
-                Ok(event) => yield Ok(SseEvent {
-                    event: Some(event.event),
-                    data: event.data,
-                    id: Some(event.id),
-                }),
+                Ok(event) => {
+                    if let Some(recorder) = &recorder {
+                        recorder.on_event();
+                    }
+                    yield Ok(SseEvent {
+                        event: Some(event.event),
+                        data: event.data,
+                        id: Some(event.id),
+                    });
+                }
                 Err(EventStreamError::Transport(SseWireError::IdleTimeout)) => {
+                    if let Some(recorder) = &recorder {
+                        recorder.on_wire_failure(ErrorClass::ReadTimeout, true);
+                    }
                     yield Err(Error::Timeout("SSE stream idle deadline exceeded".to_owned()));
                     break;
                 }
                 Err(EventStreamError::Transport(SseWireError::Transport(error))) => {
+                    if let Some(recorder) = &recorder {
+                        recorder.on_wire_failure(
+                            telemetry::classify_transport_error(&error),
+                            error.is_timeout(),
+                        );
+                    }
                     yield Err(crate::transport::policy::map_reqwest_error(error));
                     break;
                 }
                 Err(error) => {
+                    // A framing violation is the server's protocol failure,
+                    // not a transport one: as in the Python SDK, the attempt
+                    // keeps the outcome of the response that opened it.
+                    complete(recorder.as_ref());
                     yield Err(Error::Transport(format!("invalid SSE stream: {error}")));
                     break;
                 }
             }
         }
+        complete(recorder.as_ref());
     })
 }
 
-fn validate_chat_stream(mut stream: SseStream) -> JsonStream {
+fn validate_chat_stream(mut stream: SseStream, recorder: Option<StreamRecorder>) -> JsonStream {
     Box::pin(async_stream::stream! {
         let mut terminated = false;
         while let Some(item) = stream.next().await {
             match item {
                 Ok(event) if event.data.trim() == "[DONE]" => {
                     terminated = true;
+                    complete(recorder.as_ref());
                     break;
                 }
                 Ok(event) => match parse_json_event(&event.data) {
@@ -256,7 +297,10 @@ fn validate_chat_stream(mut stream: SseStream) -> JsonStream {
     })
 }
 
-fn validate_responses_stream(mut stream: SseStream) -> ResponseEventStream {
+fn validate_responses_stream(
+    mut stream: SseStream,
+    recorder: Option<StreamRecorder>,
+) -> ResponseEventStream {
     Box::pin(async_stream::stream! {
         let mut terminated = false;
         while let Some(item) = stream.next().await {
@@ -269,6 +313,7 @@ fn validate_responses_stream(mut stream: SseStream) -> ResponseEventStream {
             };
             if event.data.trim() == "[DONE]" {
                 terminated = true;
+                complete(recorder.as_ref());
                 break;
             }
             let value = match parse_json_event(&event.data) {
@@ -293,6 +338,7 @@ fn validate_responses_stream(mut stream: SseStream) -> ResponseEventStream {
             });
             if is_terminal {
                 terminated = true;
+                complete(recorder.as_ref());
                 break;
             }
         }
@@ -302,13 +348,14 @@ fn validate_responses_stream(mut stream: SseStream) -> ResponseEventStream {
     })
 }
 
-fn validate_raw_chat_stream(mut stream: SseStream) -> SseStream {
+fn validate_raw_chat_stream(mut stream: SseStream, recorder: Option<StreamRecorder>) -> SseStream {
     Box::pin(async_stream::stream! {
         let mut terminated = false;
         while let Some(item) = stream.next().await {
             match item {
                 Ok(event) if event.data.trim() == "[DONE]" => {
                     terminated = true;
+                    complete(recorder.as_ref());
                     yield Ok(event);
                     break;
                 }
@@ -331,7 +378,10 @@ fn validate_raw_chat_stream(mut stream: SseStream) -> SseStream {
     })
 }
 
-fn validate_raw_responses_stream(mut stream: SseStream) -> SseStream {
+fn validate_raw_responses_stream(
+    mut stream: SseStream,
+    recorder: Option<StreamRecorder>,
+) -> SseStream {
     Box::pin(async_stream::stream! {
         let mut terminated = false;
         while let Some(item) = stream.next().await {
@@ -344,6 +394,7 @@ fn validate_raw_responses_stream(mut stream: SseStream) -> SseStream {
             };
             if event.data.trim() == "[DONE]" {
                 terminated = true;
+                    complete(recorder.as_ref());
                 yield Ok(event);
                 break;
             }
@@ -368,6 +419,7 @@ fn validate_raw_responses_stream(mut stream: SseStream) -> SseStream {
             yield Ok(event);
             if is_terminal {
                 terminated = true;
+                complete(recorder.as_ref());
                 break;
             }
         }

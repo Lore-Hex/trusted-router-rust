@@ -4,6 +4,9 @@ use crate::constants::{
     DEFAULT_API_BASE_URL, DEFAULT_CONTROL_BASE_URL, DEFAULT_MAX_RETRIES, DEFAULT_REQUEST_TIMEOUT,
     DEFAULT_STATUS_URL, DEFAULT_TRUST_RELEASE_URL,
 };
+use crate::telemetry::reporter::{OwnedTransport, ReporterConfig, TelemetryReporter};
+use crate::telemetry::wire::sdk_identity;
+use crate::telemetry::TelemetrySink;
 use crate::transport::headers::ensure_idempotency_key;
 use crate::transport::routing::{inference_base_urls, parse_base_url};
 use crate::types::{
@@ -19,6 +22,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
 
@@ -57,6 +61,7 @@ pub struct ClientBuilder {
     pub(crate) max_retries: usize,
     pub(crate) regional_failover: bool,
     pub(crate) telemetry: Option<bool>,
+    pub(crate) telemetry_sample_rate: f64,
     pub(crate) headers: BTreeMap<String, String>,
     pub(crate) http_client: Option<reqwest::Client>,
     pub(crate) root_certificate_pems: Vec<Vec<u8>>,
@@ -74,6 +79,7 @@ impl Default for ClientBuilder {
             max_retries: DEFAULT_MAX_RETRIES,
             regional_failover: true,
             telemetry: None,
+            telemetry_sample_rate: DEFAULT_TELEMETRY_SAMPLE_RATE,
             headers: BTreeMap::new(),
             http_client: None,
             root_certificate_pems: Vec::new(),
@@ -135,18 +141,42 @@ impl ClientBuilder {
 
     /// Enables or disables client-observed reliability telemetry explicitly.
     ///
-    /// Telemetry is the content-free `x-tr-client` reliability header
-    /// (client-telemetry contract v1): closed enums and bounded counters
-    /// only, no prompt or completion data, no free text. Precedence when this
-    /// option is not set: `TRUSTEDROUTER_TELEMETRY` (`0`/`false`/`off`/`no`
-    /// disable, `1`/`true`/`on`/`yes` enable), then `DO_NOT_TRACK=1`
-    /// disables, then the default — on only when the inference base URL is a
-    /// known `TrustedRouter` host AND the control base is the HTTPS
-    /// `trustedrouter.com` plane. Custom base URLs never send the header,
-    /// and control-plane calls are never traced, regardless of this setting.
-    /// Opting out never changes the `User-Agent`.
+    /// Telemetry is content-free by construction (client-telemetry contract
+    /// v1): closed enums and bounded counters only, no prompt or completion
+    /// data, no free text. It has two channels. The per-attempt
+    /// `x-tr-client` header rides the calls you already make. The beacon
+    /// `POST`s a bounded batch of sampled request events and exact
+    /// per-minute counters to `{control_base_url}/client-events` from a
+    /// single background task on the client's own HTTP transport — never
+    /// through the retry engine, never on an injected client, at most once
+    /// per flush interval (30 s, or sooner when 50 events are waiting), with
+    /// one final flush bounded to 2 s when the last handle to the client is
+    /// dropped. `TRUSTEDROUTER_TELEMETRY_DEBUG=1` echoes every batch to
+    /// stderr before it is sent.
+    ///
+    /// Precedence when this option is not set: `TRUSTEDROUTER_TELEMETRY`
+    /// (`0`/`false`/`off`/`no` disable, `1`/`true`/`on`/`yes` enable), then
+    /// `DO_NOT_TRACK=1` disables, then the default — on only when the
+    /// inference base URL is a known `TrustedRouter` host AND the control
+    /// base is the HTTPS `trustedrouter.com` plane. Opting out disables BOTH
+    /// channels and never changes the `User-Agent`. Custom base URLs never
+    /// send the header, and control-plane calls are never traced or
+    /// beaconed, regardless of this setting.
     pub fn telemetry(mut self, value: bool) -> Self {
         self.telemetry = Some(value);
+        self
+    }
+
+    /// Sets the random sampling rate for otherwise healthy, fast,
+    /// first-attempt calls in the telemetry beacon (default `0.01`).
+    ///
+    /// Failures, retried or failed-over calls, and slow successes (over
+    /// 30 s) are always kept; the exact per-minute counters are never
+    /// sampled. Values are clamped to `[0, 1]`; `0` keeps no routine
+    /// successes. The control plane may lower the rate further but never
+    /// raise it.
+    pub fn telemetry_sample_rate(mut self, value: f64) -> Self {
+        self.telemetry_sample_rate = value;
         self
     }
 
@@ -207,6 +237,25 @@ impl ClientBuilder {
         let http = self
             .http_client
             .unwrap_or_else(|| credential_free_http.clone());
+        // The beacon reporter is plain state until the first recorded call:
+        // no worker, no HTTP client, nothing on the wire (§6.2). When
+        // telemetry is off there is no reporter at all.
+        let telemetry_sink: Option<Arc<dyn TelemetrySink>> = telemetry.then(|| {
+            let mut config = ReporterConfig::new(
+                control_base_url.clone(),
+                self.api_key.clone(),
+                sdk_identity(),
+            );
+            config.workspace_id.clone_from(&self.workspace_id);
+            config.success_sample_rate = self.telemetry_sample_rate;
+            config.debug = std::env::var("TRUSTEDROUTER_TELEMETRY_DEBUG")
+                .is_ok_and(|value| value.trim() == "1");
+            config.transport = OwnedTransport {
+                root_certificate_pems: self.root_certificate_pems.clone(),
+                host_resolutions: self.host_resolutions.clone(),
+            };
+            Arc::new(TelemetryReporter::new(config)) as Arc<dyn TelemetrySink>
+        });
         Ok(Client {
             api_key: self.api_key,
             api_base_urls: if self.regional_failover {
@@ -220,6 +269,7 @@ impl ClientBuilder {
             timeout: self.timeout,
             max_retries: self.max_retries,
             telemetry,
+            telemetry_sink,
             headers: self.headers,
             http,
             credential_free_http,
@@ -227,10 +277,15 @@ impl ClientBuilder {
     }
 }
 
-fn build_owned_http(
+/// Default random sampling rate for routine successes in the beacon.
+const DEFAULT_TELEMETRY_SAMPLE_RATE: f64 = 0.01;
+
+/// The builder every SDK-owned transport starts from: the SDK `User-Agent`,
+/// no redirects, the configured root certificates and DNS overrides.
+pub(crate) fn owned_http_builder(
     root_certificate_pems: &[Vec<u8>],
     host_resolutions: &BTreeMap<String, SocketAddr>,
-) -> Result<reqwest::Client> {
+) -> Result<reqwest::ClientBuilder> {
     let mut builder = reqwest::Client::builder()
         .user_agent(format!("trusted-router-rust/{}", env!("CARGO_PKG_VERSION")))
         .redirect(reqwest::redirect::Policy::none());
@@ -243,7 +298,14 @@ fn build_owned_http(
     for (host, address) in host_resolutions {
         builder = builder.resolve(host, *address);
     }
-    builder
+    Ok(builder)
+}
+
+fn build_owned_http(
+    root_certificate_pems: &[Vec<u8>],
+    host_resolutions: &BTreeMap<String, SocketAddr>,
+) -> Result<reqwest::Client> {
+    owned_http_builder(root_certificate_pems, host_resolutions)?
         .build()
         .map_err(|error| Error::InvalidConfiguration(error.to_string()))
 }
@@ -263,8 +325,12 @@ pub struct Client {
     pub(crate) timeout: Option<Duration>,
     pub(crate) max_retries: usize,
     /// Resolved once at build time (§6.3 precedence); `false` suppresses the
-    /// `x-tr-client` header, never the `User-Agent`.
+    /// `x-tr-client` header and the beacon, never the `User-Agent`.
     pub(crate) telemetry: bool,
+    /// Where finished inference calls are reported: the beacon reporter,
+    /// shared by every clone of this client, or `None` when telemetry is
+    /// off. Dropping the last holder performs the bounded exit flush.
+    pub(crate) telemetry_sink: Option<Arc<dyn TelemetrySink>>,
     pub(crate) headers: BTreeMap<String, String>,
     pub(crate) http: reqwest::Client,
     pub(crate) credential_free_http: reqwest::Client,
