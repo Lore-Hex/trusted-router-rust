@@ -15,23 +15,60 @@
 //! (invariant 6).
 
 use crate::client::{CallOptions, Client, Plane};
-use crate::telemetry::{self, ErrorClass, RequestRecorder};
+use crate::telemetry::{self, ErrorClass, ErrorSource, RecorderSpec, RequestRecorder};
 use crate::transport::policy::{self, FailureDisposition};
 use crate::{Error, Result};
 use http::Method;
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
 use url::Url;
 
-/// A `send` failure with its typed cause still intact. The telemetry class is
-/// read off this BEFORE [`policy::map_reqwest_error`] flattens the error to a
-/// message string — after that point the class is unrecoverable.
-enum SendFailure {
-    /// The SDK's own response-headers deadline elapsed.
+/// A `send` or body-read failure with its typed cause still intact. The
+/// telemetry class is read off this BEFORE [`policy::map_reqwest_error`]
+/// flattens the error to a message string — after that point the class is
+/// unrecoverable (§6.1 capture-before-flattening).
+pub(crate) enum AttemptFailure {
+    /// The SDK's own per-attempt deadline elapsed.
     Deadline,
     /// The transport failed with a typed [`reqwest::Error`].
     Transport(reqwest::Error),
+}
+
+impl AttemptFailure {
+    /// Records this failure against the attempt in flight. The headers
+    /// deadline bounds connect + time to first byte, so the SDK deadline is
+    /// the read wait it cut short; a typed error classifies itself.
+    pub(crate) fn record(
+        &self,
+        recorder: &mut RequestRecorder,
+        response_opened: bool,
+        body_started: bool,
+    ) {
+        match self {
+            Self::Deadline => recorder.on_transport_error(
+                ErrorClass::ReadTimeout,
+                true,
+                response_opened,
+                body_started,
+            ),
+            Self::Transport(error) => recorder.on_transport_error(
+                telemetry::classify_transport_error(error),
+                error.is_timeout(),
+                response_opened,
+                body_started,
+            ),
+        }
+    }
+
+    /// Flattens to the public error, naming the deadline that elapsed.
+    pub(crate) fn into_error(self, deadline_message: &str) -> Error {
+        match self {
+            Self::Deadline => Error::Timeout(deadline_message.to_owned()),
+            Self::Transport(error) => policy::map_reqwest_error(error),
+        }
+    }
 }
 
 /// Saturating cursor over the candidate list.
@@ -67,9 +104,24 @@ impl CandidateCursor {
     }
 }
 
+/// The error body's `source` field (§5.3 `error_source`), read the same way
+/// [`crate::error::classify_api_error`] reads it: the `error` object first,
+/// then the top level.
+fn error_source_of(payload: Option<&Value>) -> Option<ErrorSource> {
+    let payload = payload?;
+    let source = payload
+        .get("error")
+        .and_then(|error| error.get("source"))
+        .or_else(|| payload.get("source"))
+        .and_then(Value::as_str);
+    ErrorSource::parse(source)
+}
+
 impl Client {
     /// Drives one logical call to a terminal outcome: an undrained success
-    /// [`reqwest::Response`], or the classified error of the final attempt.
+    /// [`reqwest::Response`] together with the call's telemetry recorder
+    /// (for the caller to finish once the body is consumed), or the
+    /// classified error of the final attempt, already recorded and finished.
     ///
     /// The load-bearing orderings, in loop order:
     /// 1. Candidates are resolved ONCE per logical call, never per attempt.
@@ -89,9 +141,11 @@ impl Client {
     ///
     /// This loop is also the SDK's single telemetry emit point (client
     /// telemetry contract v1, §6.1): the per-call [`RequestRecorder`] observes
-    /// every attempt here, and nowhere else, so the `x-tr-client` header can
-    /// never disagree with what the engine actually did. Control-plane calls
-    /// and the attestation fetch get no recorder at all.
+    /// every attempt here, and nowhere else, so neither the `x-tr-client`
+    /// header nor the beacon can disagree with what the engine actually did.
+    /// Control-plane calls and the attestation fetch get no recorder at all.
+    /// A terminal error is recorded as `exhausted` when a retryable final
+    /// attempt hit the ceiling after at least one retry.
     pub(crate) async fn execute(
         &self,
         plane: Plane,
@@ -100,7 +154,7 @@ impl Client {
         body: Option<Value>,
         options: &CallOptions,
         streaming: bool,
-    ) -> Result<reqwest::Response> {
+    ) -> Result<(reqwest::Response, Option<RequestRecorder>)> {
         // Candidates, not one pinned URL: computing a single URL outside the
         // loop is how failover once could not move even in principle.
         let candidates = self.plane_urls(plane, path)?;
@@ -108,7 +162,15 @@ impl Client {
         // the caller's raw string, so `/x/../attestation` cannot dodge the
         // attestation exclusion via Url::join's dot-segment normalisation.
         let resolved_path = candidates.first().map_or(path, Url::path);
-        let mut recorder = self.request_recorder(plane, resolved_path, streaming);
+        let mut recorder = self.request_recorder(
+            plane,
+            &method,
+            path,
+            resolved_path,
+            body.as_ref(),
+            options,
+            streaming,
+        );
         let mut cursor = CandidateCursor::new(candidates.len());
         let mut attempt = 0;
         let replay_safe = request_replay_safe(&method, options);
@@ -129,28 +191,34 @@ impl Client {
             {
                 Ok(response) if response.status().is_success() => {
                     if let Some(recorder) = recorder.as_mut() {
-                        recorder.on_response(response.status().as_u16());
+                        recorder.on_response(response.status().as_u16(), response.headers(), None);
                     }
-                    return Ok(response);
+                    return Ok((response, recorder));
                 }
                 Ok(response) => {
                     let status = response.status();
                     let headers = response.headers().clone();
+                    // Capture header-only facts at header receipt. Draining
+                    // below later extends elapsed_ms without corrupting TTFB.
+                    if let Some(recorder) = recorder.as_mut() {
+                        recorder.on_response(status.as_u16(), &headers, None);
+                    }
                     // Drain the failure body before deciding anything so the
                     // classified error can retain its structured payload.
-                    match self.read_response(response, options).await {
+                    match self.read_body(response, options).await {
                         Ok(bytes) => {
-                            // Recorded AFTER the drain so pm covers the whole
-                            // previous attempt for buffered HTTP errors.
-                            if let Some(recorder) = recorder.as_mut() {
-                                recorder.on_response(status.as_u16());
-                            }
                             let payload = serde_json::from_slice::<Value>(&bytes).ok();
+                            // pm/elapsed cover the drain, while ttfb remains
+                            // the header-receipt measurement above.
+                            if let Some(recorder) = recorder.as_mut() {
+                                recorder
+                                    .on_response_body_complete(error_source_of(payload.as_ref()));
+                            }
                             FailureDisposition::from_http(status.as_u16(), &headers, payload)
                         }
-                        Err(read_error) => {
+                        Err(failure) => {
                             if let Some(recorder) = recorder.as_mut() {
-                                recorder.on_response(status.as_u16());
+                                failure.record(recorder, true, false);
                             }
                             // Once a retryable status is known, a truncated or
                             // stalled diagnostic body consumes this attempt but
@@ -161,7 +229,10 @@ impl Client {
                             if disposition.retry {
                                 disposition
                             } else {
-                                return Err(read_error);
+                                if let Some(recorder) = recorder.as_mut() {
+                                    recorder.finish(false);
+                                }
+                                return Err(failure.into_error("response body deadline exceeded"));
                             }
                         }
                     }
@@ -169,6 +240,9 @@ impl Client {
                 Err(error) => FailureDisposition::from_transport(error),
             };
             if attempt >= self.max_retries || !disposition.retry || !replay_safe {
+                if let Some(recorder) = recorder.as_mut() {
+                    recorder.finish(attempt > 0 && disposition.retry);
+                }
                 return Err(disposition.error);
             }
             // Only gateway-level statuses (and transport errors) move domains.
@@ -186,21 +260,52 @@ impl Client {
         }
     }
 
-    /// Builds the per-call recorder, or `None` when the call is out of the
-    /// header channel's scope: telemetry opted out, a control-plane call, or
-    /// the attestation fetch (out-of-engine in the Python SDK, so no SDK
-    /// sends `x-tr-client` on it).
+    /// Builds the per-call recorder, or `None` when the call is out of
+    /// telemetry's scope: telemetry opted out, a control-plane call, or the
+    /// attestation fetch (out-of-engine in the Python SDK, so no SDK sends
+    /// `x-tr-client` on it). The endpoint comes from the caller's logical
+    /// route, the model and provider pin from the request body — both
+    /// reduced to closed vocabularies by the recorder — and the configured
+    /// deadline is the per-attempt one this call will run under.
+    #[allow(clippy::too_many_arguments)]
     fn request_recorder(
         &self,
         plane: Plane,
+        method: &Method,
         path: &str,
+        resolved_path: &str,
+        body: Option<&Value>,
+        options: &CallOptions,
         streaming: bool,
     ) -> Option<RequestRecorder> {
-        if !self.telemetry || plane != Plane::Inference || !telemetry::tracked_inference_path(path)
+        if !self.telemetry
+            || plane != Plane::Inference
+            || !telemetry::tracked_inference_path(resolved_path)
         {
             return None;
         }
-        Some(RequestRecorder::new(streaming))
+        let provider_pinned = body
+            .and_then(|body| body.get("provider"))
+            .and_then(Value::as_object)
+            .and_then(|provider| provider.get("allow_fallbacks"))
+            .and_then(Value::as_bool)
+            == Some(false);
+        let model = body
+            .and_then(|body| body.get("model"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        Some(RequestRecorder::new(RecorderSpec {
+            sink: self
+                .telemetry_sink
+                .clone()
+                .unwrap_or_else(|| Arc::new(telemetry::NullSink)),
+            endpoint: telemetry::endpoint_enum(path),
+            method: method.clone(),
+            streaming,
+            provider_pinned,
+            model,
+            configured_timeout: options.timeout.or(self.timeout),
+        }))
     }
 
     async fn send_once(
@@ -220,10 +325,9 @@ impl Client {
             Ok(request) => request,
             Err(error) => {
                 if let Some(recorder) = recorder {
-                    recorder.on_transport_error(
-                        telemetry::classify_transport_error(&error),
-                        error.is_timeout(),
-                    );
+                    let failure = AttemptFailure::Transport(error);
+                    failure.record(recorder, false, false);
+                    return Err(failure.into_error("request could not be built"));
                 }
                 return Err(policy::map_reqwest_error(error));
             }
@@ -244,24 +348,9 @@ impl Client {
                 // Classify while the typed error still exists; the map below
                 // flattens it to a string (§6.1 capture-before-flattening).
                 if let Some(recorder) = recorder {
-                    match &failure {
-                        // The headers deadline bounds connect + time to first
-                        // byte; the read wait is the phase it cuts short.
-                        SendFailure::Deadline => {
-                            recorder.on_transport_error(ErrorClass::ReadTimeout, true);
-                        }
-                        SendFailure::Transport(error) => recorder.on_transport_error(
-                            telemetry::classify_transport_error(error),
-                            error.is_timeout(),
-                        ),
-                    }
+                    failure.record(recorder, false, false);
                 }
-                Err(match failure {
-                    SendFailure::Deadline => {
-                        Error::Timeout("response headers deadline exceeded".to_owned())
-                    }
-                    SendFailure::Transport(error) => policy::map_reqwest_error(error),
-                })
+                Err(failure.into_error("response headers deadline exceeded"))
             }
         }
     }
@@ -273,33 +362,37 @@ impl Client {
         http: &reqwest::Client,
         request: reqwest::Request,
         deadline: Option<Duration>,
-    ) -> std::result::Result<reqwest::Response, SendFailure> {
+    ) -> std::result::Result<reqwest::Response, AttemptFailure> {
         match deadline {
             Some(duration) if duration != Duration::ZERO => {
                 match timeout(duration, http.execute(request)).await {
-                    Ok(sent) => sent.map_err(SendFailure::Transport),
-                    Err(_) => Err(SendFailure::Deadline),
+                    Ok(sent) => sent.map_err(AttemptFailure::Transport),
+                    Err(_) => Err(AttemptFailure::Deadline),
                 }
             }
-            _ => http.execute(request).await.map_err(SendFailure::Transport),
+            _ => http
+                .execute(request)
+                .await
+                .map_err(AttemptFailure::Transport),
         }
     }
 
-    pub(crate) async fn read_response(
+    /// Drains a body under the per-attempt deadline, keeping the typed
+    /// failure so the caller can record it before flattening.
+    pub(crate) async fn read_body(
         &self,
         response: reqwest::Response,
         options: &CallOptions,
-    ) -> Result<bytes::Bytes> {
+    ) -> std::result::Result<bytes::Bytes, AttemptFailure> {
         let deadline = options.timeout.or(self.timeout);
-        if deadline == Some(Duration::ZERO) {
-            return response.bytes().await.map_err(policy::map_reqwest_error);
-        }
         match deadline {
-            Some(duration) => timeout(duration, response.bytes())
-                .await
-                .map_err(|_| Error::Timeout("response body deadline exceeded".to_owned()))?
-                .map_err(policy::map_reqwest_error),
-            None => response.bytes().await.map_err(policy::map_reqwest_error),
+            Some(duration) if duration != Duration::ZERO => {
+                match timeout(duration, response.bytes()).await {
+                    Ok(read) => read.map_err(AttemptFailure::Transport),
+                    Err(_) => Err(AttemptFailure::Deadline),
+                }
+            }
+            _ => response.bytes().await.map_err(AttemptFailure::Transport),
         }
     }
 }
@@ -446,7 +539,7 @@ mod candidate_walk_tests {
         let (down, up) = two_hosts(503).await;
         let client = client_over(&down, &up);
 
-        let response = client
+        let (response, _recorder) = client
             .open_stream(
                 Plane::Inference,
                 Method::POST,

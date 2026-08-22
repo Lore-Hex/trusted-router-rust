@@ -38,9 +38,31 @@ pub const DEFAULT_MAX_RETRIES: usize = 2;
 /// value lists below are the closed contract-v1 vocabularies and must not
 /// change without a coordinated release across every `TrustedRouter` SDK.
 pub const TELEMETRY_SCHEMA_VERSION: u32 = 1;
-/// Control-plane ingest path for the telemetry beacon channel. Reserved: the
-/// Rust SDK implements the header channel only; no beacon is sent.
+/// Control-plane ingest path for the telemetry beacon channel (contract v1
+/// §4): batches are `POST`ed to `{control_base_url}/client-events`.
 pub const DEFAULT_TELEMETRY_PATH: &str = "/client-events";
+/// Beacon flush interval in seconds (§6.2). The server may only lengthen it.
+pub const TELEMETRY_FLUSH_SECONDS: f64 = 30.0;
+/// Maximum buffered sampled events per process (§6.2); the oldest success,
+/// then the oldest failure, is dropped past it and every drop is counted.
+pub const TELEMETRY_MAX_EVENTS: usize = 1000;
+/// Maximum events per beacon batch (§4).
+pub const TELEMETRY_MAX_BATCH_EVENTS: usize = 100;
+/// Maximum per-minute counters per beacon batch (§4).
+pub const TELEMETRY_MAX_BATCH_COUNTERS: usize = 200;
+/// Maximum distinct counter keys per minute window (§5.4); a new key past
+/// the cap folds into a coarser existing key so counts stay exact.
+pub const TELEMETRY_MAX_WINDOW_KEYS: usize = 256;
+/// How long closed minute windows are retained while the control plane is
+/// unreachable (§4), in seconds.
+pub const TELEMETRY_RETENTION_SECONDS: u64 = 86_400;
+/// Byte cap on retained closed minute windows (§6.2); the oldest window is
+/// dropped first.
+pub const TELEMETRY_RETENTION_BYTES: usize = 524_288;
+/// Initial beacon backoff after a 429/503 or transport failure (§6.2).
+pub const TELEMETRY_BACKOFF_MIN_SECONDS: f64 = 60.0;
+/// Ceiling on the beacon backoff and on an honoured `Retry-After` (§6.2).
+pub const TELEMETRY_BACKOFF_MAX_SECONDS: f64 = 600.0;
 /// Closed telemetry host vocabulary (contract v1 §5.2).
 pub const TELEMETRY_HOSTS: [&str; 8] = [
     "apex",
@@ -74,6 +96,17 @@ pub const TELEMETRY_OUTCOMES: [&str; 6] = [
     "stream_broken",
     "aborted",
 ];
+/// Closed telemetry final-outcome vocabulary (contract v1 §5.2): every
+/// per-attempt outcome plus `exhausted`.
+pub const TELEMETRY_FINAL_OUTCOMES: [&str; 7] = [
+    "ok",
+    "http_error",
+    "transport_error",
+    "timeout",
+    "stream_broken",
+    "aborted",
+    "exhausted",
+];
 /// Closed telemetry transport-error class vocabulary (contract v1 §5.2).
 pub const TELEMETRY_ERROR_CLASSES: [&str; 14] = [
     "dns",
@@ -90,6 +123,14 @@ pub const TELEMETRY_ERROR_CLASSES: [&str; 14] = [
     "proxy_error",
     "stream_stalled",
     "unknown",
+];
+/// Closed telemetry timeout-phase vocabulary (contract v1 §5.2).
+pub const TELEMETRY_TIMEOUT_PHASES: [&str; 5] = ["none", "connect", "first_byte", "idle", "total"];
+/// Closed telemetry latency-bucket vocabulary (contract v1 §5.2); upper
+/// bounds in milliseconds, exclusive.
+pub const TELEMETRY_LATENCY_BUCKETS: [&str; 12] = [
+    "lt100", "lt200", "lt400", "lt800", "lt1600", "lt3200", "lt6400", "lt12800", "lt25600",
+    "lt51200", "lt102400", "ge102400",
 ];
 
 /// Automatic non-orchestration model routing.

@@ -1,15 +1,22 @@
-//! Client-observed reliability telemetry: the `x-tr-client` header channel.
+//! Client-observed reliability telemetry: the `x-tr-client` header channel
+//! and the `/client-events` beacon channel.
 //!
-//! Implements contract v1 of `docs/client-telemetry.md` (Lore-Hex/quill-router),
-//! header channel only (§3.2). The beacon channel (§4) is deliberately absent
-//! per §9/§10: no second SDK grows a beacon until the Python contract has been
-//! live and calibrated. `credential_free_json` in [`crate::transport`] is the
-//! reserved out-of-engine attach point for that later PR.
+//! Implements contract v1 of `docs/client-telemetry.md` (Lore-Hex/quill-router):
+//! the per-attempt header (§3.2) and the content-free beacon (§4, §5). This
+//! file holds the closed vocabularies, the transport-error classifier, and
+//! the per-call [`RequestRecorder`] that observes every attempt at the SDK's
+//! single emit point (`transport::engine`, §6.1) and derives the sampled
+//! event plus the exact per-minute counter increments in
+//! [`RequestRecorder::finish`] (§5.3, §5.4 — a port of
+//! `trusted_router._telemetry.RequestRecorder._finish`). [`reporter`]
+//! buffers, bounds, and delivers those on the reporter's OWN HTTP client;
+//! [`wire`] is the closed batch schema and the SDK identity.
 //!
 //! Non-negotiable (§2.2): telemetry never fails a request. Every path in this
 //! module is total — no panics, no `unwrap`/`expect`, saturating integer
 //! arithmetic, and an out-of-grammar header value sends nothing rather than
-//! erroring.
+//! erroring. The beacon never rides the retry engine and is never itself
+//! recorded.
 //!
 //! Host mapping (§5.2) matches by hostname, case-insensitively and ignoring
 //! the port, mirroring `trusted_router._telemetry.host_enum` in the Python
@@ -20,9 +27,17 @@
 //! testable against a loopback HTTP mock via a DNS override — Rust has no
 //! in-process fake transport, so the wire tests must speak real HTTP.
 
+pub(crate) mod reporter;
+pub(crate) mod wire;
+
 use crate::constants::{ALIAS_API_BASE_URLS, DEFAULT_API_BASE_URL};
-use crate::transport::routing::semantic_route;
-use std::time::Instant;
+use crate::transport::policy::parse_retry_after;
+use crate::transport::routing::{semantic_request_route, semantic_route};
+use http::Method;
+use reqwest::header::HeaderMap;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 use url::Url;
 
 /// Durations on the wire are clamped to one hour, per the contract's
@@ -44,7 +59,7 @@ const REGION_HOSTS: [(&str, Host); 3] = [
 
 /// Closed host vocabulary (§5.2). Only values in this enum ever reach the
 /// wire; anything unrecognised is `Custom`, and `Custom` suppresses the header.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum Host {
     /// `api.trustedrouter.com`.
     Apex,
@@ -79,13 +94,15 @@ impl Host {
     }
 }
 
-/// Per-attempt outcomes producible by the transport engine (§5.2 Outcome).
+/// Per-attempt outcomes (§5.2 `Outcome`). The wire vocabulary is pinned by
+/// [`crate::constants::TELEMETRY_OUTCOMES`].
 ///
-/// `stream_broken` and `aborted` are absent deliberately: the engine never
-/// retries after the first surfaced body byte (transport invariant 6), so
-/// neither can ever be a *previous* attempt's outcome in a header. The full
-/// wire vocabulary is pinned by [`crate::constants::TELEMETRY_OUTCOMES`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// `stream_broken` and `aborted` are only ever the FINAL attempt's outcome:
+/// the engine never retries after the first surfaced body byte (transport
+/// invariant 6), so neither can be a *previous* attempt's outcome in a
+/// header, and §3.2's `po` vocabulary has no `aborted` — a retry after one
+/// would degrade to `po=none`, exactly like `ok`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum AttemptOutcome {
     /// 2xx–3xx response.
     Ok,
@@ -95,6 +112,10 @@ pub(crate) enum AttemptOutcome {
     TransportError,
     /// The SDK's own deadline, or a transport-level timeout.
     Timeout,
+    /// The body failed after the first event had already been surfaced.
+    StreamBroken,
+    /// The caller dropped the call (or the stream) before it completed.
+    Aborted,
 }
 
 impl AttemptOutcome {
@@ -104,17 +125,43 @@ impl AttemptOutcome {
             Self::HttpError => "http_error",
             Self::TransportError => "transport_error",
             Self::Timeout => "timeout",
+            Self::StreamBroken => "stream_broken",
+            Self::Aborted => "aborted",
         }
     }
 }
 
-/// Transport-error classes producible by the engine (§5.2 `ErrorClass`).
-///
-/// `write_timeout`, `pool_timeout`, and `stream_stalled` are absent because
-/// the engine cannot observe them (no write/pool deadlines; no mid-stream
-/// retries). The full wire vocabulary is pinned by
-/// [`crate::constants::TELEMETRY_ERROR_CLASSES`].
+/// Final outcome of a logical call (§5.2 `FinalOutcome`): the last
+/// attempt's outcome, or `exhausted` when retries ran out on a failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FinalOutcome {
+    /// The final attempt's own outcome.
+    Outcome(AttemptOutcome),
+    /// More than one attempt, the last one retryable but the ceiling hit.
+    Exhausted,
+}
+
+impl FinalOutcome {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Outcome(outcome) => outcome.as_str(),
+            Self::Exhausted => "exhausted",
+        }
+    }
+
+    pub(crate) fn is_ok(self) -> bool {
+        self == Self::Outcome(AttemptOutcome::Ok)
+    }
+}
+
+/// Transport-error classes (§5.2 `ErrorClass`). The full wire vocabulary is
+/// pinned by [`crate::constants::TELEMETRY_ERROR_CLASSES`].
+///
+/// `write_timeout` and `pool_timeout` exist for vocabulary completeness; the
+/// engine has no write or pool deadlines and never produces them.
+/// `stream_stalled` is the idle deadline elapsing after the first event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[allow(dead_code)] // Closed wire vocabulary; not every class is observable in reqwest.
 pub(crate) enum ErrorClass {
     /// Name resolution failed.
     Dns,
@@ -128,6 +175,10 @@ pub(crate) enum ErrorClass {
     ConnectError,
     /// Waiting for the response exceeded a deadline.
     ReadTimeout,
+    /// Sending the request exceeded a deadline (never produced here).
+    WriteTimeout,
+    /// Waiting for a pooled connection exceeded a deadline (never produced).
+    PoolTimeout,
     /// HTTP framing was violated, or the peer closed mid-message.
     ProtocolError,
     /// The connection was reset or aborted.
@@ -136,6 +187,8 @@ pub(crate) enum ErrorClass {
     IoError,
     /// A proxy failed the request.
     ProxyError,
+    /// The open stream went silent past the idle deadline.
+    StreamStalled,
     /// Anything the classifier cannot name. Conservative: counts against
     /// `TrustedRouter` in the §8 methodology.
     Unknown,
@@ -150,11 +203,206 @@ impl ErrorClass {
             Self::ConnectTimeout => "connect_timeout",
             Self::ConnectError => "connect_error",
             Self::ReadTimeout => "read_timeout",
+            Self::WriteTimeout => "write_timeout",
+            Self::PoolTimeout => "pool_timeout",
             Self::ProtocolError => "protocol_error",
             Self::Reset => "reset",
             Self::IoError => "io_error",
             Self::ProxyError => "proxy_error",
+            Self::StreamStalled => "stream_stalled",
             Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// Closed endpoint vocabulary (§5.2 `Endpoint`), derived from the caller's
+/// logical route by [`endpoint_enum`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[allow(dead_code)] // Closed wire vocabulary; control calls are intentionally unrecorded.
+pub(crate) enum Endpoint {
+    /// `/chat/completions`.
+    ChatCompletions,
+    /// `/messages`.
+    Messages,
+    /// `/responses`.
+    Responses,
+    /// `/embeddings`.
+    Embeddings,
+    /// `/images` and below.
+    Images,
+    /// `/videos` and below.
+    Videos,
+    /// `/models` and below.
+    Models,
+    /// `/fusion` and below.
+    Fusion,
+    /// Any other control-plane route (never recorded: control calls get no
+    /// recorder at all).
+    ControlOther,
+    /// Any other inference-plane route.
+    InferenceOther,
+}
+
+impl Endpoint {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::ChatCompletions => "chat_completions",
+            Self::Messages => "messages",
+            Self::Responses => "responses",
+            Self::Embeddings => "embeddings",
+            Self::Images => "images",
+            Self::Videos => "videos",
+            Self::Models => "models",
+            Self::Fusion => "fusion",
+            Self::ControlOther => "control_other",
+            Self::InferenceOther => "inference_other",
+        }
+    }
+}
+
+/// Closed timeout-phase vocabulary (§5.2 `TimeoutPhase`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[allow(dead_code)] // Closed wire vocabulary; this SDK has no whole-call deadline.
+pub(crate) enum TimeoutPhase {
+    /// No deadline was involved.
+    None,
+    /// Connecting.
+    Connect,
+    /// Waiting for the response headers or the first event.
+    FirstByte,
+    /// Waiting for the next event on an open stream.
+    Idle,
+    /// A whole-call deadline (never produced here).
+    Total,
+}
+
+impl TimeoutPhase {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Connect => "connect",
+            Self::FirstByte => "first_byte",
+            Self::Idle => "idle",
+            Self::Total => "total",
+        }
+    }
+}
+
+/// Closed HTTP status class vocabulary (§5.2 `HttpStatusClass`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) enum HttpStatusClass {
+    /// No response, or a status outside 2xx/4xx/5xx.
+    None,
+    /// 200–299.
+    Success,
+    /// 400–499 other than 429.
+    ClientError,
+    /// Exactly 429.
+    RateLimited,
+    /// 500–599.
+    ServerError,
+}
+
+impl HttpStatusClass {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Success => "2xx",
+            Self::ClientError => "4xx",
+            Self::RateLimited => "429",
+            Self::ServerError => "5xx",
+        }
+    }
+}
+
+/// Closed latency-bucket vocabulary (§5.2 `LatencyBucket`); upper bounds in
+/// milliseconds, exclusive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) enum LatencyBucket {
+    Lt100,
+    Lt200,
+    Lt400,
+    Lt800,
+    Lt1600,
+    Lt3200,
+    Lt6400,
+    Lt12800,
+    Lt25600,
+    Lt51200,
+    Lt102400,
+    Ge102400,
+}
+
+impl LatencyBucket {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Lt100 => "lt100",
+            Self::Lt200 => "lt200",
+            Self::Lt400 => "lt400",
+            Self::Lt800 => "lt800",
+            Self::Lt1600 => "lt1600",
+            Self::Lt3200 => "lt3200",
+            Self::Lt6400 => "lt6400",
+            Self::Lt12800 => "lt12800",
+            Self::Lt25600 => "lt25600",
+            Self::Lt51200 => "lt51200",
+            Self::Lt102400 => "lt102400",
+            Self::Ge102400 => "ge102400",
+        }
+    }
+}
+
+/// Where an error response said it came from (§5.2 `ErrorSource`), read off
+/// the error body's `source` field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ErrorSource {
+    Router,
+    Provider,
+    Unknown,
+}
+
+impl ErrorSource {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Router => "router",
+            Self::Provider => "provider",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// Parses the error body's `source` field; anything else is `None`.
+    pub(crate) fn parse(value: Option<&str>) -> Option<Self> {
+        match value? {
+            "router" => Some(Self::Router),
+            "provider" => Some(Self::Provider),
+            "unknown" => Some(Self::Unknown),
+            _ => None,
+        }
+    }
+}
+
+/// The `x-should-retry` verdict as observed on a response (§5.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShouldRetry {
+    True,
+    False,
+    Absent,
+}
+
+/// Counter level (§5.4 `level`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) enum Level {
+    /// One row per attempt made.
+    Attempt,
+    /// One row per logical call, keyed on its final facts.
+    Request,
+}
+
+impl Level {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Attempt => "attempt",
+            Self::Request => "request",
         }
     }
 }
@@ -360,15 +608,212 @@ pub(crate) fn classify_chain(top: &(dyn std::error::Error + 'static), connect: b
     }
 }
 
-/// One attempt's facts, as the retry loop observed them.
-#[derive(Debug, Clone, Copy)]
+/// Maps the caller's logical route to the closed §5.2 endpoint vocabulary.
+/// Mirrors `trusted_router._telemetry.endpoint_enum`: exact matches for the
+/// four prompt routes, prefix matches for the grouped ones, everything else
+/// `inference_other`. The route is folded through
+/// [`semantic_request_route`] first, so dot segments, percent escapes,
+/// case, and repeated separators cannot produce a second spelling.
+pub(crate) fn endpoint_enum(path: &str) -> Endpoint {
+    let clean = path.split(['?', '#']).next().unwrap_or(path);
+    let route = semantic_request_route(clean);
+    match route.as_str() {
+        "/chat/completions" => return Endpoint::ChatCompletions,
+        "/messages" => return Endpoint::Messages,
+        "/responses" => return Endpoint::Responses,
+        "/embeddings" => return Endpoint::Embeddings,
+        _ => {}
+    }
+    for (prefix, endpoint) in [
+        ("/images", Endpoint::Images),
+        ("/videos", Endpoint::Videos),
+        ("/models", Endpoint::Models),
+        ("/fusion", Endpoint::Fusion),
+    ] {
+        if route == prefix || route.starts_with(&format!("{prefix}/")) {
+            return endpoint;
+        }
+    }
+    Endpoint::InferenceOther
+}
+
+/// Buckets a millisecond latency (§5.2 `LatencyBucket`, upper bound
+/// exclusive).
+pub(crate) fn latency_bucket(ms: u64) -> LatencyBucket {
+    const BOUNDS: [(u64, LatencyBucket); 11] = [
+        (100, LatencyBucket::Lt100),
+        (200, LatencyBucket::Lt200),
+        (400, LatencyBucket::Lt400),
+        (800, LatencyBucket::Lt800),
+        (1600, LatencyBucket::Lt1600),
+        (3200, LatencyBucket::Lt3200),
+        (6400, LatencyBucket::Lt6400),
+        (12800, LatencyBucket::Lt12800),
+        (25600, LatencyBucket::Lt25600),
+        (51200, LatencyBucket::Lt51200),
+        (102_400, LatencyBucket::Lt102400),
+    ];
+    for (upper, bucket) in BOUNDS {
+        if ms < upper {
+            return bucket;
+        }
+    }
+    LatencyBucket::Ge102400
+}
+
+/// Classifies an HTTP status (§5.2 `HttpStatusClass`).
+pub(crate) fn status_class(status: Option<u16>) -> HttpStatusClass {
+    match status {
+        Some(200..=299) => HttpStatusClass::Success,
+        Some(429) => HttpStatusClass::RateLimited,
+        Some(400..=499) => HttpStatusClass::ClientError,
+        Some(500..=599) => HttpStatusClass::ServerError,
+        _ => HttpStatusClass::None,
+    }
+}
+
+/// §5.4 `timeout_floor_met`: the configured deadline for the phase that
+/// fired was at or above the methodology floor (connect ≥ 10 s, first byte
+/// ≥ 60 s, idle ≥ 30 s), so the timeout counts against `TrustedRouter`.
+pub(crate) fn timeout_floor_met(phase: TimeoutPhase, configured_ms: Option<u64>) -> bool {
+    let Some(configured_ms) = configured_ms else {
+        return false;
+    };
+    let floor = match phase {
+        TimeoutPhase::Connect => 10_000,
+        TimeoutPhase::FirstByte => 60_000,
+        TimeoutPhase::Idle => 30_000,
+        TimeoutPhase::None | TimeoutPhase::Total => return false,
+    };
+    configured_ms >= floor
+}
+
+/// The phase a transport-error class implies before any body was read,
+/// mirroring the phase half of `trusted_router._telemetry.classify_transport_error`.
+fn phase_for_class(class: ErrorClass) -> TimeoutPhase {
+    match class {
+        ErrorClass::ConnectTimeout => TimeoutPhase::Connect,
+        ErrorClass::ReadTimeout | ErrorClass::WriteTimeout => TimeoutPhase::FirstByte,
+        _ => TimeoutPhase::None,
+    }
+}
+
+/// True when `model` fits the §5.3 `ModelId` grammar
+/// `^[A-Za-z0-9._:/~@-]{1,128}$`.
+pub(crate) fn valid_model(model: &str) -> bool {
+    !model.is_empty()
+        && model.len() <= 128
+        && model
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:/~@-".contains(&byte))
+}
+
+/// True when `value` is an enclave request id, `^rlog_[0-9a-f]{32}$` (§3.3).
+pub(crate) fn valid_request_id(value: &str) -> bool {
+    value.strip_prefix("rlog_").is_some_and(|hex| {
+        hex.len() == 32
+            && hex
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    })
+}
+
+/// One attempt's facts, as the retry loop observed them (§5.3
+/// `ClientAttempt`, plus the timeout phase the counters need).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AttemptRecord {
     pub(crate) index: usize,
     pub(crate) host: Host,
     pub(crate) outcome: AttemptOutcome,
+    pub(crate) http_status: Option<u16>,
     pub(crate) error_class: Option<ErrorClass>,
+    pub(crate) error_source: Option<ErrorSource>,
+    pub(crate) should_retry: ShouldRetry,
+    pub(crate) retry_after_ms: Option<u64>,
     pub(crate) elapsed_ms: u64,
+    pub(crate) ttfb_ms: Option<u64>,
+    pub(crate) request_id: Option<String>,
     pub(crate) moved: bool,
+    /// The §5.2 timeout phase this attempt's failure fell in (`none` unless
+    /// a deadline fired). Not a wire field of the attempt; it feeds the
+    /// event's `timeout_phase` and the attempt-level counter key.
+    pub(crate) phase: TimeoutPhase,
+}
+
+/// One logical call's facts as handed to the sink by
+/// [`RequestRecorder::finish`] (§5.3 `ClientRequestEvent` minus the sampling
+/// and age fields, which the reporter adds).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RequestEvent {
+    pub(crate) endpoint: Endpoint,
+    pub(crate) method: Method,
+    pub(crate) streaming: bool,
+    pub(crate) provider_pinned: bool,
+    pub(crate) model: Option<String>,
+    pub(crate) attempts: Vec<AttemptRecord>,
+    pub(crate) final_outcome: FinalOutcome,
+    pub(crate) final_http_status: Option<u16>,
+    pub(crate) total_ms: u64,
+    pub(crate) ttft_ms: Option<u64>,
+    pub(crate) failover_used: bool,
+    pub(crate) timeout_phase: TimeoutPhase,
+    pub(crate) configured_timeout_ms: Option<u64>,
+}
+
+/// The exact ten-field counter key (§5.4): everything but the counts and
+/// histograms. `model` is deliberately not part of it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) struct CounterKey {
+    pub(crate) level: Level,
+    pub(crate) endpoint: Endpoint,
+    pub(crate) streaming: bool,
+    pub(crate) host: Host,
+    pub(crate) outcome: AttemptOutcome,
+    pub(crate) error_class: Option<ErrorClass>,
+    pub(crate) http_status_class: HttpStatusClass,
+    pub(crate) timeout_phase: TimeoutPhase,
+    pub(crate) timeout_floor_met: bool,
+    pub(crate) provider_pinned: bool,
+}
+
+/// The counts and histograms of one counter row, also used as the increment
+/// a single call contributes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct CounterRow {
+    pub(crate) requests: u64,
+    pub(crate) attempts: u64,
+    pub(crate) failover_used: u64,
+    pub(crate) first_attempt_success: u64,
+    pub(crate) total_ms_hist: BTreeMap<LatencyBucket, u64>,
+    pub(crate) first_event_ms_hist: BTreeMap<LatencyBucket, u64>,
+}
+
+/// Where finished calls go: the beacon reporter in production, an
+/// in-memory recorder in tests. Must never panic — it runs on the request
+/// path's tail and inside `Drop`.
+pub(crate) trait TelemetrySink: std::fmt::Debug + Send + Sync {
+    fn on_request(&self, event: RequestEvent, counters: Vec<(CounterKey, CounterRow)>);
+}
+
+/// A sink that discards everything: the header channel without a beacon.
+#[derive(Debug)]
+pub(crate) struct NullSink;
+
+impl TelemetrySink for NullSink {
+    fn on_request(&self, _event: RequestEvent, _counters: Vec<(CounterKey, CounterRow)>) {}
+}
+
+/// Everything a recorder knows before the first attempt.
+pub(crate) struct RecorderSpec {
+    pub(crate) sink: Arc<dyn TelemetrySink>,
+    pub(crate) endpoint: Endpoint,
+    pub(crate) method: Method,
+    pub(crate) streaming: bool,
+    pub(crate) provider_pinned: bool,
+    pub(crate) model: Option<String>,
+    /// The per-attempt deadline (connect + headers, and the body/idle read);
+    /// `None` or zero means no SDK deadline.
+    pub(crate) configured_timeout: Option<Duration>,
 }
 
 fn duration_ms(start: Instant, end: Instant) -> u64 {
@@ -404,31 +849,63 @@ fn finalize_header(values: &[(&'static str, String)]) -> Option<String> {
     Some(header)
 }
 
-/// Records one logical inference call across the retry loop and derives the
-/// per-attempt `x-tr-client` value (§3.2). Mirrors the recording half of
-/// `trusted_router._telemetry.RequestRecorder`; the sink/beacon half is
-/// deliberately out of scope for the header-channel PR.
+fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers.get(name).and_then(|value| value.to_str().ok())
+}
+
+/// Records one logical inference call across the retry loop: derives the
+/// per-attempt `x-tr-client` value (§3.2) and, at [`Self::finish`], the
+/// sampled event and exact counter increments (§5.3, §5.4). A port of
+/// `trusted_router._telemetry.RequestRecorder`.
+///
+/// Dropping an unfinished recorder records the in-flight attempt as
+/// `aborted` and finishes — the Rust spelling of the Python SDK's
+/// `KeyboardInterrupt`/`GeneratorExit` arms, since a cancelled future or a
+/// dropped stream is the only way a call ends without reaching a terminal
+/// arm of the engine.
 #[derive(Debug)]
+#[allow(clippy::struct_excessive_bools)] // Independent contract facts, not one state machine.
 pub(crate) struct RequestRecorder {
+    sink: Arc<dyn TelemetrySink>,
+    endpoint: Endpoint,
+    method: Method,
+    /// Only `GET`/`POST` calls are recorded (the schema module's closed
+    /// method vocabulary); other methods still carry the header.
+    recordable: bool,
     streaming: bool,
+    provider_pinned: bool,
+    model: Option<String>,
+    configured_timeout: Option<Duration>,
     attempts: Vec<AttemptRecord>,
     failover_used: bool,
+    ttft_ms: Option<u64>,
     first_started: Option<Instant>,
     attempt_started: Option<Instant>,
     current_host: Option<Host>,
     current_index: Option<usize>,
+    finished: bool,
 }
 
 impl RequestRecorder {
-    pub(crate) fn new(streaming: bool) -> Self {
+    pub(crate) fn new(spec: RecorderSpec) -> Self {
+        let recordable = matches!(spec.method, Method::GET | Method::POST);
         Self {
-            streaming,
+            sink: spec.sink,
+            endpoint: spec.endpoint,
+            method: spec.method,
+            recordable,
+            streaming: spec.streaming,
+            provider_pinned: spec.provider_pinned,
+            model: spec.model.filter(|model| valid_model(model)),
+            configured_timeout: spec.configured_timeout.filter(|value| !value.is_zero()),
             attempts: Vec::new(),
             failover_used: false,
+            ttft_ms: None,
             first_started: None,
             attempt_started: None,
             current_host: None,
             current_index: None,
+            finished: false,
         }
     }
 
@@ -462,12 +939,12 @@ impl RequestRecorder {
             let attempt_started = self.attempt_started?;
             let first_started = self.first_started.unwrap_or(attempt_started);
             // §3.2's po vocabulary is none|http_error|transport_error|
-            // timeout|stream_broken — there is no "ok". A forced retry after
-            // a sub-400 response (x-should-retry: true on a 3xx) therefore
-            // degrades to po=none;pc=none rather than emitting a value the
-            // enclave would drop the whole header for.
+            // timeout|stream_broken — there is no "ok" or "aborted". A forced
+            // retry after a sub-400 response (x-should-retry: true on a 3xx)
+            // therefore degrades to po=none;pc=none rather than emitting a
+            // value the enclave would drop the whole header for.
             let (po, pc) = match previous.outcome {
-                AttemptOutcome::Ok => ("none", "none"),
+                AttemptOutcome::Ok | AttemptOutcome::Aborted => ("none", "none"),
                 outcome => (
                     outcome.as_str(),
                     previous.error_class.map_or("none", ErrorClass::as_str),
@@ -497,13 +974,44 @@ impl RequestRecorder {
         }
     }
 
-    /// Records an attempt that produced an HTTP response.
-    pub(crate) fn on_response(&mut self, status: u16) {
-        let (Some(started), Some(host), Some(index)) =
-            (self.attempt_started, self.current_host, self.current_index)
-        else {
+    /// The attempt in flight: its start, host, and index, or `None` before
+    /// the first [`Self::begin_attempt`].
+    fn in_flight(&self) -> Option<(Instant, Host, usize)> {
+        Some((
+            self.attempt_started?,
+            self.current_host?,
+            self.current_index?,
+        ))
+    }
+
+    /// Records an attempt that produced an HTTP response. `error_source` is
+    /// the error body's `source` field for a failure response, when the
+    /// engine drained one.
+    pub(crate) fn on_response(
+        &mut self,
+        status: u16,
+        headers: &HeaderMap,
+        error_source: Option<ErrorSource>,
+    ) {
+        let Some((started, host, index)) = self.in_flight() else {
             return;
         };
+        let elapsed_ms = duration_ms(started, Instant::now());
+        let should_retry = match header_str(headers, "x-should-retry")
+            .map(|value| value.trim().to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("true") => ShouldRetry::True,
+            Some("false") => ShouldRetry::False,
+            _ => ShouldRetry::Absent,
+        };
+        let retry_after_ms = parse_retry_after(headers).map(|delay| {
+            u64::try_from(delay.as_millis().min(u128::from(MAX_DURATION_MS)))
+                .unwrap_or(MAX_DURATION_MS)
+        });
+        let request_id = header_str(headers, "x-request-id")
+            .filter(|value| valid_request_id(value))
+            .map(str::to_owned);
         self.store_attempt(AttemptRecord {
             index,
             host,
@@ -512,32 +1020,83 @@ impl RequestRecorder {
             } else {
                 AttemptOutcome::HttpError
             },
+            http_status: Some(status),
             error_class: None,
-            elapsed_ms: duration_ms(started, Instant::now()),
+            error_source,
+            should_retry,
+            retry_after_ms,
+            elapsed_ms,
+            ttfb_ms: Some(elapsed_ms),
+            request_id,
             moved: false,
+            phase: TimeoutPhase::None,
         });
     }
 
-    /// Records an attempt that failed before an HTTP response existed. The
-    /// class must be captured while the typed transport error is still alive
-    /// (see [`classify_transport_error`]).
-    pub(crate) fn on_transport_error(&mut self, class: ErrorClass, timed_out: bool) {
-        let (Some(started), Some(host), Some(index)) =
-            (self.attempt_started, self.current_host, self.current_index)
-        else {
+    /// Finishes accounting for a buffered error response after its body was
+    /// drained. Header-observed facts (especially `ttfb_ms`) stay anchored at
+    /// header receipt while `elapsed_ms` covers the complete attempt and the
+    /// bounded error source is attached once the JSON body is available.
+    pub(crate) fn on_response_body_complete(&mut self, error_source: Option<ErrorSource>) {
+        let Some((started, _, index)) = self.in_flight() else {
             return;
         };
+        if let Some(record) = self.attempts.get_mut(index) {
+            record.elapsed_ms = duration_ms(started, Instant::now());
+            record.error_source = error_source;
+        }
+    }
+
+    /// Records a transport-level failure of the attempt in flight. The class
+    /// must be captured while the typed transport error is still alive (see
+    /// [`classify_transport_error`]). `response_opened` keeps the status and
+    /// ids of an already-recorded response; `body_started` turns a failure
+    /// into `stream_broken` (or an idle `stream_stalled` timeout) — the
+    /// mid-body outcomes of §5.2. Mirrors the Python recorder's
+    /// `on_transport_error(exc, response_opened=, body_started=)`.
+    pub(crate) fn on_transport_error(
+        &mut self,
+        class: ErrorClass,
+        timed_out: bool,
+        response_opened: bool,
+        body_started: bool,
+    ) {
+        let Some((started, host, index)) = self.in_flight() else {
+            return;
+        };
+        let mut class = class;
+        let mut phase = phase_for_class(class);
+        let outcome = if timed_out {
+            if body_started {
+                phase = TimeoutPhase::Idle;
+                if class == ErrorClass::ReadTimeout {
+                    class = ErrorClass::StreamStalled;
+                }
+            }
+            AttemptOutcome::Timeout
+        } else if body_started {
+            AttemptOutcome::StreamBroken
+        } else {
+            AttemptOutcome::TransportError
+        };
+        let previous = self.attempts.get(index).cloned();
+        let opened = previous.as_ref().filter(|_| response_opened);
         self.store_attempt(AttemptRecord {
             index,
             host,
-            outcome: if timed_out {
-                AttemptOutcome::Timeout
-            } else {
-                AttemptOutcome::TransportError
-            },
+            outcome,
+            http_status: opened.and_then(|record| record.http_status),
             error_class: Some(class),
+            error_source: previous.as_ref().and_then(|record| record.error_source),
+            should_retry: previous
+                .as_ref()
+                .map_or(ShouldRetry::Absent, |record| record.should_retry),
+            retry_after_ms: previous.as_ref().and_then(|record| record.retry_after_ms),
             elapsed_ms: duration_ms(started, Instant::now()),
+            ttfb_ms: opened.and_then(|record| record.ttfb_ms),
+            request_id: previous.and_then(|record| record.request_id),
             moved: false,
+            phase,
         });
     }
 
@@ -549,6 +1108,230 @@ impl RequestRecorder {
             last.moved = true;
             self.failover_used = true;
         }
+    }
+
+    /// Records the first decoded SSE event: `ttft_ms` is measured from the
+    /// FIRST attempt's start, so retries before the stream opened count.
+    pub(crate) fn on_first_event(&mut self) {
+        if self.ttft_ms.is_none() {
+            if let Some(first_started) = self.first_started {
+                self.ttft_ms = Some(duration_ms(first_started, Instant::now()));
+            }
+        }
+    }
+
+    /// Records that the caller abandoned the call mid-attempt: the attempt in
+    /// flight becomes `aborted`, keeping whatever facts it already had.
+    pub(crate) fn on_aborted(&mut self) {
+        let Some((started, host, index)) = self.in_flight() else {
+            return;
+        };
+        let previous = self.attempts.get(index).cloned();
+        let record = AttemptRecord {
+            index,
+            host,
+            outcome: AttemptOutcome::Aborted,
+            http_status: previous.as_ref().and_then(|record| record.http_status),
+            error_class: previous.as_ref().and_then(|record| record.error_class),
+            error_source: previous.as_ref().and_then(|record| record.error_source),
+            should_retry: previous
+                .as_ref()
+                .map_or(ShouldRetry::Absent, |record| record.should_retry),
+            retry_after_ms: previous.as_ref().and_then(|record| record.retry_after_ms),
+            elapsed_ms: duration_ms(started, Instant::now()),
+            ttfb_ms: previous.as_ref().and_then(|record| record.ttfb_ms),
+            request_id: previous
+                .as_ref()
+                .and_then(|record| record.request_id.clone()),
+            moved: previous.as_ref().is_some_and(|record| record.moved),
+            phase: previous.map_or(TimeoutPhase::None, |record| record.phase),
+        };
+        self.store_attempt(record);
+    }
+
+    /// `configured_timeout_ms` for a phase (§5.3): the per-attempt deadline
+    /// when a connect, first-byte, or idle deadline is what fired; `None`
+    /// otherwise. The Python SDK reads the phase's deadline off its
+    /// `httpx.Timeout`; this SDK has one deadline covering all three phases.
+    fn configured_timeout_ms(&self, phase: TimeoutPhase) -> Option<u64> {
+        match phase {
+            TimeoutPhase::Connect | TimeoutPhase::FirstByte | TimeoutPhase::Idle => {
+                self.configured_timeout.map(|deadline| {
+                    u64::try_from(deadline.as_millis().clamp(1, u128::from(MAX_DURATION_MS)))
+                        .unwrap_or(MAX_DURATION_MS)
+                })
+            }
+            TimeoutPhase::None | TimeoutPhase::Total => None,
+        }
+    }
+
+    /// Derives the event and the exact counter increments and hands them to
+    /// the sink, once. `exhausted` is the engine's verdict that the final
+    /// attempt was retryable but the retry ceiling stopped it. Idempotent:
+    /// a second call (or the `Drop` after an explicit finish) is a no-op.
+    pub(crate) fn finish(&mut self, exhausted: bool) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
+        let (Some(first_started), Some(last)) = (self.first_started, self.attempts.last()) else {
+            return;
+        };
+        if !self.recordable {
+            return;
+        }
+        let last = last.clone();
+        let final_outcome =
+            if exhausted && self.attempts.len() > 1 && last.outcome != AttemptOutcome::Ok {
+                FinalOutcome::Exhausted
+            } else {
+                FinalOutcome::Outcome(last.outcome)
+            };
+        let timeout_phase = last.phase;
+        let configured_timeout_ms = self.configured_timeout_ms(timeout_phase);
+        let total_ms = duration_ms(first_started, Instant::now());
+        let event = RequestEvent {
+            endpoint: self.endpoint,
+            method: self.method.clone(),
+            streaming: self.streaming,
+            provider_pinned: self.provider_pinned,
+            model: self.model.clone(),
+            attempts: self.attempts.clone(),
+            final_outcome,
+            final_http_status: last.http_status,
+            total_ms,
+            ttft_ms: self.ttft_ms,
+            failover_used: self.failover_used,
+            timeout_phase,
+            configured_timeout_ms,
+        };
+        let request_key = CounterKey {
+            level: Level::Request,
+            endpoint: self.endpoint,
+            streaming: self.streaming,
+            host: last.host,
+            // The counter outcome is the final attempt's own outcome, never
+            // `exhausted` (the schema module types counters on `Outcome`).
+            outcome: last.outcome,
+            error_class: self.attempts.iter().find_map(|attempt| attempt.error_class),
+            http_status_class: status_class(last.http_status),
+            timeout_phase,
+            timeout_floor_met: timeout_floor_met(timeout_phase, configured_timeout_ms),
+            provider_pinned: self.provider_pinned,
+        };
+        let mut request_row = CounterRow {
+            requests: 1,
+            attempts: self.attempts.len() as u64,
+            failover_used: u64::from(self.failover_used),
+            first_attempt_success: u64::from(
+                self.attempts
+                    .first()
+                    .is_some_and(|attempt| attempt.outcome == AttemptOutcome::Ok),
+            ),
+            total_ms_hist: BTreeMap::from([(latency_bucket(total_ms), 1)]),
+            first_event_ms_hist: BTreeMap::new(),
+        };
+        if let Some(first_event_ms) = self.ttft_ms.or(last.ttfb_ms) {
+            request_row
+                .first_event_ms_hist
+                .insert(latency_bucket(first_event_ms), 1);
+        }
+        let mut counters = vec![(request_key, request_row)];
+        for attempt in &self.attempts {
+            let attempt_timeout_ms = self.configured_timeout_ms(attempt.phase);
+            counters.push((
+                CounterKey {
+                    level: Level::Attempt,
+                    endpoint: self.endpoint,
+                    streaming: self.streaming,
+                    host: attempt.host,
+                    outcome: attempt.outcome,
+                    error_class: attempt.error_class,
+                    http_status_class: status_class(attempt.http_status),
+                    timeout_phase: attempt.phase,
+                    timeout_floor_met: timeout_floor_met(attempt.phase, attempt_timeout_ms),
+                    provider_pinned: self.provider_pinned,
+                },
+                CounterRow {
+                    requests: 1,
+                    attempts: 1,
+                    failover_used: u64::from(attempt.moved),
+                    first_attempt_success: 0,
+                    total_ms_hist: BTreeMap::new(),
+                    first_event_ms_hist: BTreeMap::new(),
+                },
+            ));
+        }
+        self.sink.on_request(event, counters);
+    }
+}
+
+impl Drop for RequestRecorder {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.on_aborted();
+            self.finish(false);
+        }
+    }
+}
+
+/// The recorder of an OPEN stream, shared between the SSE wire layer (first
+/// event, wire failures, end of stream) and the protocol validators that
+/// recognise a terminal frame. Dropping the last handle before completion
+/// records `aborted` through [`RequestRecorder`]'s own `Drop`.
+#[derive(Debug, Clone)]
+pub(crate) struct StreamRecorder {
+    state: Arc<Mutex<StreamState>>,
+}
+
+#[derive(Debug)]
+struct StreamState {
+    recorder: RequestRecorder,
+    body_started: bool,
+}
+
+impl StreamRecorder {
+    pub(crate) fn new(recorder: RequestRecorder) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(StreamState {
+                recorder,
+                body_started: false,
+            })),
+        }
+    }
+
+    fn with_state(&self, action: impl FnOnce(&mut StreamState)) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        action(&mut state);
+    }
+
+    /// One decoded SSE event reached the caller's layer.
+    pub(crate) fn on_event(&self) {
+        self.with_state(|state| {
+            if !state.body_started {
+                state.body_started = true;
+                state.recorder.on_first_event();
+            }
+        });
+    }
+
+    /// The body failed under the caller: `stream_broken` or a stalled idle
+    /// timeout after the first event, a plain transport failure before it.
+    pub(crate) fn on_wire_failure(&self, class: ErrorClass, timed_out: bool) {
+        self.with_state(|state| {
+            let body_started = state.body_started;
+            state
+                .recorder
+                .on_transport_error(class, timed_out, true, body_started);
+            state.recorder.finish(false);
+        });
+    }
+
+    /// The stream ended: end of body, a terminal protocol frame, or a
+    /// protocol error the SDK surfaced (which, as in the Python SDK, leaves
+    /// the attempt's outcome as the response that opened it).
+    pub(crate) fn on_complete(&self) {
+        self.with_state(|state| state.recorder.finish(false));
     }
 }
 
@@ -562,9 +1345,13 @@ mod tests {
     use super::{
         classify_chain, classify_transport_error, duration_ms, finalize_header, host_enum,
         host_enum_str, resolve_telemetry_enabled, tracked_inference_path, AttemptOutcome,
-        AttemptRecord, ErrorClass, Host, RequestRecorder,
+        AttemptRecord, CounterKey, Endpoint, ErrorClass, FinalOutcome, Host, HttpStatusClass,
+        Level, RecorderSpec, RequestRecorder, ShouldRetry, StreamRecorder, TimeoutPhase,
     };
+    use crate::telemetry::reporter::RecordingSink;
+    use http::Method;
     use std::collections::HashMap;
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
     use url::Url;
 
@@ -572,13 +1359,197 @@ mod tests {
         Url::parse("https://api.trustedrouter.com/v1/").unwrap()
     }
 
+    /// A recorder for the header vectors: the sink is irrelevant to them.
+    fn header_recorder(streaming: bool) -> RequestRecorder {
+        RequestRecorder::new(RecorderSpec {
+            sink: Arc::new(RecordingSink::default()),
+            endpoint: Endpoint::ChatCompletions,
+            method: Method::POST,
+            streaming,
+            provider_pinned: false,
+            model: None,
+            configured_timeout: Some(Duration::from_secs(120)),
+        })
+    }
+
+    fn empty_headers() -> reqwest::header::HeaderMap {
+        reqwest::header::HeaderMap::new()
+    }
+
+    #[test]
+    fn finish_derives_the_exact_request_and_attempt_counter_tuples() {
+        let sink = Arc::new(RecordingSink::default());
+        let mut recorder = RequestRecorder::new(RecorderSpec {
+            sink: sink.clone(),
+            endpoint: Endpoint::Responses,
+            method: Method::POST,
+            streaming: false,
+            provider_pinned: true,
+            model: Some("model/a".to_owned()),
+            configured_timeout: Some(Duration::from_secs(60)),
+        });
+        recorder.begin_attempt(&apex_url());
+        let mut retry_headers = empty_headers();
+        retry_headers.insert("x-should-retry", "true".parse().unwrap());
+        recorder.on_response(503, &retry_headers, None);
+        recorder.on_moved();
+        recorder.begin_attempt(&Url::parse("https://api.allyrouter.com/v1/responses").unwrap());
+        let mut success_headers = empty_headers();
+        success_headers.insert(
+            "x-request-id",
+            "rlog_0123456789abcdef0123456789abcdef".parse().unwrap(),
+        );
+        recorder.on_response(200, &success_headers, None);
+        recorder.finish(false);
+
+        let events = sink.events();
+        assert_eq!(events.len(), 1);
+        let event = &events[0];
+        assert_eq!(event.endpoint, Endpoint::Responses);
+        assert_eq!(
+            event.final_outcome,
+            FinalOutcome::Outcome(AttemptOutcome::Ok)
+        );
+        assert!(event.failover_used);
+        assert_eq!(event.attempts.len(), 2);
+        assert!(event.attempts[0].moved);
+        assert_eq!(event.attempts[0].should_retry, ShouldRetry::True);
+        assert_eq!(event.attempts[1].host, Host::Ally);
+
+        let counters = sink.counters();
+        assert_eq!(counters.len(), 1);
+        assert_eq!(counters[0].len(), 3);
+        assert_eq!(
+            counters[0][0].0,
+            CounterKey {
+                level: Level::Request,
+                endpoint: Endpoint::Responses,
+                streaming: false,
+                host: Host::Ally,
+                outcome: AttemptOutcome::Ok,
+                error_class: None,
+                http_status_class: HttpStatusClass::Success,
+                timeout_phase: TimeoutPhase::None,
+                timeout_floor_met: false,
+                provider_pinned: true,
+            }
+        );
+        assert_eq!(counters[0][0].1.requests, 1);
+        assert_eq!(counters[0][0].1.attempts, 2);
+        assert_eq!(counters[0][0].1.failover_used, 1);
+        assert_eq!(counters[0][0].1.first_attempt_success, 0);
+        assert_eq!(counters[0][1].0.level, Level::Attempt);
+        assert_eq!(counters[0][1].0.host, Host::Apex);
+        assert_eq!(counters[0][1].0.outcome, AttemptOutcome::HttpError);
+        assert_eq!(
+            counters[0][1].0.http_status_class,
+            HttpStatusClass::ServerError
+        );
+        assert_eq!(counters[0][1].1.failover_used, 1);
+        assert_eq!(counters[0][2].0.host, Host::Ally);
+        assert_eq!(counters[0][2].0.outcome, AttemptOutcome::Ok);
+
+        let exhausted_sink = Arc::new(RecordingSink::default());
+        let mut exhausted = RequestRecorder::new(RecorderSpec {
+            sink: exhausted_sink.clone(),
+            endpoint: Endpoint::Responses,
+            method: Method::POST,
+            streaming: false,
+            provider_pinned: false,
+            model: None,
+            configured_timeout: None,
+        });
+        exhausted.begin_attempt(&apex_url());
+        exhausted.on_response(503, &empty_headers(), None);
+        exhausted.begin_attempt(&apex_url());
+        exhausted.on_response(503, &empty_headers(), None);
+        exhausted.finish(true);
+        assert_eq!(
+            exhausted_sink.events()[0].final_outcome,
+            FinalOutcome::Exhausted
+        );
+        assert_eq!(
+            exhausted_sink.counters()[0][0].0.outcome,
+            AttemptOutcome::HttpError,
+            "counter outcome is the final attempt outcome, never exhausted"
+        );
+    }
+
+    #[test]
+    fn stream_hooks_record_ttft_breakage_and_caller_abort_once() {
+        let broken_sink = Arc::new(RecordingSink::default());
+        let mut broken = RequestRecorder::new(RecorderSpec {
+            sink: broken_sink.clone(),
+            endpoint: Endpoint::ChatCompletions,
+            method: Method::POST,
+            streaming: true,
+            provider_pinned: false,
+            model: None,
+            configured_timeout: Some(Duration::from_secs(30)),
+        });
+        broken.begin_attempt(&apex_url());
+        broken.on_response(200, &empty_headers(), None);
+        let broken = StreamRecorder::new(broken);
+        broken.on_event();
+        broken.on_wire_failure(ErrorClass::Reset, false);
+        broken.on_complete();
+        drop(broken);
+        let events = broken_sink.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].final_outcome,
+            FinalOutcome::Outcome(AttemptOutcome::StreamBroken)
+        );
+        assert!(events[0].ttft_ms.is_some());
+
+        let aborted_sink = Arc::new(RecordingSink::default());
+        let mut aborted = RequestRecorder::new(RecorderSpec {
+            sink: aborted_sink.clone(),
+            endpoint: Endpoint::Responses,
+            method: Method::POST,
+            streaming: true,
+            provider_pinned: false,
+            model: None,
+            configured_timeout: None,
+        });
+        aborted.begin_attempt(&apex_url());
+        aborted.on_response(200, &empty_headers(), None);
+        drop(StreamRecorder::new(aborted));
+        let events = aborted_sink.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].final_outcome,
+            FinalOutcome::Outcome(AttemptOutcome::Aborted)
+        );
+    }
+
+    #[test]
+    fn methods_outside_get_and_post_never_emit_events_or_counters() {
+        let sink = Arc::new(RecordingSink::default());
+        let mut recorder = RequestRecorder::new(RecorderSpec {
+            sink: sink.clone(),
+            endpoint: Endpoint::InferenceOther,
+            method: Method::PUT,
+            streaming: false,
+            provider_pinned: false,
+            model: None,
+            configured_timeout: None,
+        });
+        recorder.begin_attempt(&apex_url());
+        assert_eq!(recorder.header_value().as_deref(), Some("v=1;a=0;s=0"));
+        recorder.on_response(200, &empty_headers(), None);
+        recorder.finish(false);
+        assert!(sink.events().is_empty());
+        assert!(sink.counters().is_empty());
+    }
+
     #[test]
     fn attempt_zero_headers_match_the_contract_examples_byte_for_byte() {
-        let mut streaming = RequestRecorder::new(true);
+        let mut streaming = header_recorder(true);
         streaming.begin_attempt(&apex_url());
         assert_eq!(streaming.header_value().as_deref(), Some("v=1;a=0;s=1"));
 
-        let mut buffered = RequestRecorder::new(false);
+        let mut buffered = header_recorder(false);
         buffered.begin_attempt(&apex_url());
         assert_eq!(buffered.header_value().as_deref(), Some("v=1;a=0;s=0"));
     }
@@ -598,14 +1569,21 @@ mod tests {
         // transport::engine. This test only proves the serializer reproduces
         // the documented bytes for the documented field values.
         let first = Instant::now();
-        let mut recorder = RequestRecorder::new(true);
+        let mut recorder = header_recorder(true);
         recorder.attempts.push(AttemptRecord {
             index: 0,
             host: Host::Apex,
             outcome: AttemptOutcome::TransportError,
+            http_status: None,
             error_class: Some(ErrorClass::ConnectTimeout),
+            error_source: None,
+            should_retry: ShouldRetry::Absent,
+            retry_after_ms: None,
             elapsed_ms: 10012,
+            ttfb_ms: None,
+            request_id: None,
             moved: true,
+            phase: TimeoutPhase::Connect,
         });
         recorder.failover_used = true;
         recorder.first_started = Some(first);
@@ -623,11 +1601,11 @@ mod tests {
     #[test]
     fn a_custom_host_suppresses_the_header() {
         // A self-hosted gateway is not TrustedRouter's to measure (§3.2).
-        let mut recorder = RequestRecorder::new(true);
+        let mut recorder = header_recorder(true);
         recorder.begin_attempt(&Url::parse("http://127.0.0.1:9/v1/").unwrap());
         assert_eq!(recorder.header_value(), None);
         // And before begin_attempt there is nothing to describe.
-        assert_eq!(RequestRecorder::new(true).header_value(), None);
+        assert_eq!(header_recorder(true).header_value(), None);
     }
 
     #[test]
@@ -636,7 +1614,7 @@ mod tests {
         // for two hours: Instant cannot be faked, so the recorded start is
         // rewound instead. pm and sm must clamp to the contract's 3600000
         // ceiling — never serialise past it.
-        let mut recorder = RequestRecorder::new(false);
+        let mut recorder = header_recorder(false);
         recorder.begin_attempt(&apex_url());
         let two_hours = Duration::from_secs(2 * 3600);
         let Some(rewound) = recorder
@@ -650,7 +1628,7 @@ mod tests {
         };
         recorder.attempt_started = Some(rewound);
         recorder.first_started = Some(rewound);
-        recorder.on_transport_error(ErrorClass::ConnectTimeout, true);
+        recorder.on_transport_error(ErrorClass::ConnectTimeout, true, false, false);
         recorder.begin_attempt(&apex_url());
         let header = recorder.header_value().expect("in grammar");
         assert!(header.contains(";pm=3600000;"), "pm must clamp: {header}");
@@ -665,16 +1643,16 @@ mod tests {
         // emitting a header the enclave would drop whole. The state here is
         // production-shaped: one hundred real begin/record cycles.
         let url = apex_url();
-        let mut recorder = RequestRecorder::new(false);
+        let mut recorder = header_recorder(false);
         for _ in 0..99 {
             recorder.begin_attempt(&url);
-            recorder.on_transport_error(ErrorClass::ConnectRefused, false);
+            recorder.on_transport_error(ErrorClass::ConnectRefused, false, false, false);
         }
         recorder.begin_attempt(&url);
         let at_bound = recorder.header_value().expect("99 itself is in bounds");
         assert!(at_bound.starts_with("v=1;a=99;"), "{at_bound}");
         assert_header_grammar(&at_bound);
-        recorder.on_transport_error(ErrorClass::ConnectRefused, false);
+        recorder.on_transport_error(ErrorClass::ConnectRefused, false, false, false);
         recorder.begin_attempt(&url);
         assert_eq!(recorder.header_value(), None, "attempt 100 must be silent");
     }
@@ -687,9 +1665,9 @@ mod tests {
         // engine-path proof is a_forced_retry_after_a_sub_400_response_
         // reports_po_none in tests/telemetry_header.rs.
         let url = apex_url();
-        let mut recorder = RequestRecorder::new(false);
+        let mut recorder = header_recorder(false);
         recorder.begin_attempt(&url);
-        recorder.on_response(302);
+        recorder.on_response(302, &empty_headers(), None);
         recorder.begin_attempt(&url);
         let header = recorder.header_value().expect("in grammar");
         assert!(

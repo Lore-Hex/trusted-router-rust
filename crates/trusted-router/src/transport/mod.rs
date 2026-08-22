@@ -6,7 +6,10 @@
 //! assembles each attempt (L4). This file keeps the thin entry points:
 //! `request_bytes` (execute, then drain the body under the deadline),
 //! `open_stream` (execute, returning the live undrained response), and the
-//! deliberately single-shot `credential_free_json`.
+//! deliberately single-shot `credential_free_json`. The telemetry beacon
+//! (`telemetry::reporter`) follows the `credential_free_json` precedent —
+//! one single-shot `POST` outside this engine, no retries, no failover — on
+//! the reporter's own client rather than either transport below.
 //!
 //! # Invariants
 //!
@@ -72,6 +75,7 @@ pub(crate) mod routing;
 
 use crate::client::{CallOptions, Client, Plane};
 use crate::error::classify_api_error;
+use crate::telemetry::StreamRecorder;
 use crate::{Error, Result};
 use http::Method;
 use serde::de::DeserializeOwned;
@@ -91,15 +95,33 @@ impl Client {
         body: Option<Value>,
         options: CallOptions,
     ) -> Result<Vec<u8>> {
-        let response = self
+        let (response, recorder) = self
             .execute(plane, method, path, body, &options, false)
             .await?;
-        let bytes = self.read_response(response, &options).await?;
-        Ok(bytes.to_vec())
+        // The call is finished here, not in the engine: a success body that
+        // fails to drain is this attempt's outcome (§5.3), recorded with its
+        // typed class before the error is flattened.
+        match self.read_body(response, &options).await {
+            Ok(bytes) => {
+                if let Some(mut recorder) = recorder {
+                    recorder.finish(false);
+                }
+                Ok(bytes.to_vec())
+            }
+            Err(failure) => {
+                if let Some(mut recorder) = recorder {
+                    failure.record(&mut recorder, true, false);
+                    recorder.finish(false);
+                }
+                Err(failure.into_error("response body deadline exceeded"))
+            }
+        }
     }
 
     /// Streaming entry point: drives the same engine and hands back the live
-    /// [`reqwest::Response`] with its body untouched, ready for SSE parsing.
+    /// [`reqwest::Response`] with its body untouched, ready for SSE parsing,
+    /// together with the call's recorder for the SSE layer to finish (first
+    /// event, mid-body failure, completion, or abandonment).
     pub(crate) async fn open_stream(
         &self,
         plane: Plane,
@@ -107,9 +129,11 @@ impl Client {
         path: &str,
         body: Value,
         options: CallOptions,
-    ) -> Result<reqwest::Response> {
-        self.execute(plane, method, path, Some(body), &options, true)
-            .await
+    ) -> Result<(reqwest::Response, Option<StreamRecorder>)> {
+        let (response, recorder) = self
+            .execute(plane, method, path, Some(body), &options, true)
+            .await?;
+        Ok((response, recorder.map(StreamRecorder::new)))
     }
 
     /// Executes a plane request on the SDK-owned credential-free transport.
@@ -150,6 +174,7 @@ impl Client {
         client.api_key = None;
         client.workspace_id = None;
         client.telemetry = false;
+        client.telemetry_sink = None;
         client.headers.retain(|name, _| !credential_header(name));
         client.http = self.credential_free_http.clone();
         client
