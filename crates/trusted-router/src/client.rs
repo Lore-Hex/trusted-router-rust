@@ -5,7 +5,7 @@ use crate::constants::{
     DEFAULT_STATUS_URL, DEFAULT_TRUST_RELEASE_URL,
 };
 use crate::telemetry::reporter::{OwnedTransport, ReporterConfig, TelemetryReporter};
-use crate::telemetry::wire::sdk_identity;
+use crate::telemetry::wire::{sdk_identity, sdk_user_agent};
 use crate::telemetry::TelemetrySink;
 use crate::transport::headers::ensure_idempotency_key;
 use crate::transport::routing::{inference_base_urls, parse_base_url};
@@ -287,7 +287,7 @@ pub(crate) fn owned_http_builder(
     host_resolutions: &BTreeMap<String, SocketAddr>,
 ) -> Result<reqwest::ClientBuilder> {
     let mut builder = reqwest::Client::builder()
-        .user_agent(format!("trusted-router-rust/{}", env!("CARGO_PKG_VERSION")))
+        .user_agent(sdk_user_agent())
         .redirect(reqwest::redirect::Policy::none());
     for pem in root_certificate_pems {
         let certificate = reqwest::Certificate::from_pem(pem).map_err(|error| {

@@ -207,9 +207,39 @@ async fn the_user_agent_matches_the_contract_grammar() {
         .await
         .unwrap();
     let user_agents = header_values(&server, "user-agent").await;
+    let rustc_release = env!("TRUSTED_ROUTER_RUSTC_RELEASE");
+    let expected_user_agent = format!(
+        "trusted-router-rust/{VERSION} rustc/{}",
+        if rustc_release.is_empty() {
+            "unknown"
+        } else {
+            rustc_release
+        }
+    );
     assert_eq!(
         user_agents,
-        vec![Some(format!("trusted-router-rust/{VERSION}"))]
+        vec![Some(expected_user_agent)],
+        "the inference request must emit the complete static identity"
+    );
+    let user_agent = user_agents[0].as_deref().unwrap();
+    let prefix = format!("trusted-router-rust/{VERSION}");
+    assert!(user_agent.starts_with(&prefix), "{user_agent}");
+    assert_eq!(user_agent.bytes().filter(|byte| *byte == b' ').count(), 1);
+    let (actual_prefix, runtime) = user_agent.split_once(' ').unwrap();
+    assert_eq!(actual_prefix, prefix);
+    let Some((runtime_name, runtime_version)) = runtime.split_once('/') else {
+        panic!("runtime token has no slash: {runtime}");
+    };
+    assert!(!runtime_name.is_empty() && runtime_name.len() <= 10);
+    assert!(runtime_name.bytes().all(|byte| byte.is_ascii_lowercase()));
+    assert!(!runtime_version.is_empty() && runtime_version.len() <= 24);
+    assert!(runtime_version
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || b".+-".contains(&byte)));
+    assert!(
+        user_agent.len() <= 256,
+        "{} bytes: {user_agent}",
+        user_agent.len()
     );
     let mut parts = VERSION.split('.');
     let release: Vec<&str> = [parts.next(), parts.next(), parts.next()]

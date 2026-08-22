@@ -75,6 +75,7 @@ pub(crate) mod routing;
 
 use crate::client::{CallOptions, Client, Plane};
 use crate::error::classify_api_error;
+use crate::telemetry::wire::sdk_user_agent;
 use crate::telemetry::StreamRecorder;
 use crate::{Error, Result};
 use http::Method;
@@ -205,10 +206,7 @@ impl Client {
         let request = self
             .credential_free_http
             .get(url)
-            .header(
-                "user-agent",
-                format!("trusted-router-rust/{}", env!("CARGO_PKG_VERSION")),
-            )
+            .header("user-agent", sdk_user_agent())
             .build()
             .map_err(policy::map_reqwest_error)?;
         let response = match self.timeout {

@@ -40,7 +40,8 @@
 //! disable the reporter for the rest of the process and clear its buffers.
 
 use super::wire::{
-    merge_counter_increment, SampleReason, SdkIdentity, WireBatch, WireCounter, WireEvent,
+    merge_counter_increment, sdk_user_agent, SampleReason, SdkIdentity, WireBatch, WireCounter,
+    WireEvent,
 };
 use super::{CounterKey, CounterRow, Endpoint, ErrorClass, RequestEvent, TelemetrySink};
 use crate::constants::{
@@ -799,10 +800,7 @@ impl Inner {
         let mut request = http
             .post(self.endpoint.clone())
             .header(AUTHORIZATION, format!("Bearer {api_key}"))
-            .header(
-                USER_AGENT,
-                format!("trusted-router-rust/{}", env!("CARGO_PKG_VERSION")),
-            )
+            .header(USER_AGENT, sdk_user_agent())
             .header(CONTENT_TYPE, "application/json");
         if let Some(workspace) = self
             .workspace_id
