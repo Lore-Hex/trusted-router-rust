@@ -493,6 +493,39 @@ mod tests {
     }
 
     #[test]
+    fn adversarial_compiler_releases_never_produce_a_malformed_runtime() {
+        let overlong = format!("1.0.0+{}", "a".repeat(25));
+        let cases = [
+            ("whitespace-only", "   \t", "rustc/unknown"),
+            ("surrounding whitespace", " 1.88.0 ", "rustc/unknown"),
+            ("prerelease", "1.99.0-nightly", "rustc/1.99.0-nightly"),
+            ("build suffix", "1.88.0+build.7", "rustc/1.88.0+build.7"),
+            ("invalid punctuation", "1.0.0 (abc)", "rustc/unknown"),
+            ("unicode", "1.0.0-β", "rustc/unknown"),
+            ("over-long", overlong.as_str(), "rustc/unknown"),
+        ];
+
+        for (description, release, expected) in cases {
+            let runtime = runtime_token_from_release(Some(release));
+            assert_eq!(runtime, expected, "{description}: {release:?}");
+            assert!(
+                runtime == "rustc/unknown" || valid_runtime(&runtime),
+                "{description}: {runtime:?}"
+            );
+            assert!(valid_runtime(&runtime), "{description}: {runtime:?}");
+            assert_eq!(
+                runtime.bytes().filter(|byte| *byte == b'/').count(),
+                1,
+                "{description}: {runtime:?}"
+            );
+            assert!(
+                !runtime.chars().any(char::is_whitespace),
+                "{description}: {runtime:?}"
+            );
+        }
+    }
+
+    #[test]
     fn the_version_grammar_matches_the_bounded_python_semver() {
         for ok in ["0.1.0", "1.2.3", "10.20.30-rc.1", "1.0.0+build.5"] {
             assert!(valid_semver(ok), "{ok}");

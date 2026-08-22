@@ -142,11 +142,24 @@ async fn owned_jwks_client_rejects_redirects_while_supplied_policy_is_caller_own
     assert_eq!(error.kind(), ErrorKind::Attestation);
     assert!(error.to_string().contains("HTTP 307"));
     assert!(target.received_requests().await.unwrap().is_empty());
+    let owned_requests = source.received_requests().await.unwrap();
+    assert_eq!(owned_requests.len(), 1);
+    let owned_user_agent = owned_requests[0]
+        .headers
+        .get("user-agent")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(owned_user_agent.starts_with("trusted-router-rust/"));
+    assert!(owned_user_agent.contains(" rustc/"));
 
     options.http_client = Some(reqwest::Client::new());
     let verified = verify_gateway_attestation(&token, options).await.unwrap();
     assert_eq!(verified.image_digest, "sha256:trusted");
     assert_eq!(target.received_requests().await.unwrap().len(), 1);
+    let source_requests = source.received_requests().await.unwrap();
+    assert_eq!(source_requests.len(), 2);
+    assert!(source_requests[1].headers.get("user-agent").is_none());
 }
 
 fn hex(value: &[u8]) -> String {
