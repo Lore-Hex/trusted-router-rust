@@ -1,6 +1,6 @@
 //! Google Confidential Space attestation verification.
 
-use crate::{Error, Result};
+use crate::{telemetry::wire::sdk_user_agent, Error, Result};
 use constant_time_eq::constant_time_eq;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
@@ -292,7 +292,11 @@ pub async fn verify_gateway_attestation(
 async fn fetch_jwks(options: &AttestationVerificationOptions) -> Result<Value> {
     let client = match options.http_client.clone() {
         Some(client) => client,
+        // The default URL is a third-party GCP endpoint, so this sends the SDK
+        // name/version/runtime there: the same identity sent to TrustedRouter
+        // and by every other SDK-owned request.
         None => reqwest::Client::builder()
+            .user_agent(sdk_user_agent())
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| {

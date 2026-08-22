@@ -8,6 +8,7 @@
 //! `tests/client_contract.rs`).
 
 use crate::client::{CallOptions, Client};
+use crate::telemetry::wire::sdk_user_agent;
 use crate::telemetry::RequestRecorder;
 use crate::{Error, Result};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -37,10 +38,7 @@ impl Client {
         enforce_reserved_telemetry_header(&mut headers, telemetry);
         headers.insert(
             reqwest::header::USER_AGENT,
-            parse_header_value(&format!(
-                "trusted-router-rust/{}",
-                env!("CARGO_PKG_VERSION")
-            ))?,
+            parse_header_value(&sdk_user_agent())?,
         );
         let api_key = options.api_key.as_ref().or(self.api_key.as_ref());
         if options.api_key.is_some() || self.api_key.is_some() {

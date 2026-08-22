@@ -108,6 +108,34 @@ pub(crate) fn valid_runtime(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || b".+-".contains(&byte))
 }
 
+/// Builds the compiler runtime token shared by the beacon identity and every
+/// SDK-owned HTTP client's `User-Agent`. Missing, empty, or out-of-grammar
+/// releases fall back to the contract-valid unknown value.
+fn runtime_token_from_release(release: Option<&str>) -> String {
+    let release = release
+        .filter(|value| !value.is_empty())
+        .unwrap_or("unknown");
+    let runtime = format!("rustc/{release}");
+    if valid_runtime(&runtime) {
+        runtime
+    } else {
+        "rustc/unknown".to_owned()
+    }
+}
+
+pub(crate) fn runtime_token() -> String {
+    runtime_token_from_release(option_env!("TRUSTED_ROUTER_RUSTC_RELEASE"))
+}
+
+/// Static request identity (§3.1), including the optional runtime suffix.
+pub(crate) fn sdk_user_agent() -> String {
+    format!(
+        "trusted-router-rust/{} {}",
+        env!("CARGO_PKG_VERSION"),
+        runtime_token()
+    )
+}
+
 fn os_enum(os: &str) -> &'static str {
     match os {
         "linux" => "linux",
@@ -137,15 +165,6 @@ fn arch_enum(arch: &str) -> &'static str {
 /// batch can never be rejected for its identity.
 pub(crate) fn sdk_identity() -> SdkIdentity {
     let version = env!("CARGO_PKG_VERSION");
-    let release = env!("TRUSTED_ROUTER_RUSTC_RELEASE");
-    let runtime = format!(
-        "rustc/{}",
-        if release.is_empty() {
-            "unknown"
-        } else {
-            release
-        }
-    );
     SdkIdentity {
         name: "tr-rust",
         version: if valid_semver(version) {
@@ -154,11 +173,7 @@ pub(crate) fn sdk_identity() -> SdkIdentity {
             "0.0.0".to_owned()
         },
         lang: "rust",
-        runtime: if valid_runtime(&runtime) {
-            runtime
-        } else {
-            "rustc/unknown".to_owned()
-        },
+        runtime: runtime_token(),
         os: os_enum(std::env::consts::OS),
         arch: arch_enum(std::env::consts::ARCH),
     }
@@ -432,7 +447,9 @@ pub(crate) fn merge_counter_increment(target: &mut CounterRow, increment: &Count
 
 #[cfg(test)]
 mod tests {
-    use super::{sdk_identity, valid_runtime, valid_semver};
+    use super::{
+        runtime_token_from_release, sdk_identity, sdk_user_agent, valid_runtime, valid_semver,
+    };
 
     #[test]
     fn the_identity_only_uses_the_contract_vocabulary() {
@@ -447,6 +464,65 @@ mod tests {
                 .contains(&identity.os)
         );
         assert!(["x64", "x32", "arm", "arm64", "wasm", "other"].contains(&identity.arch));
+    }
+
+    #[test]
+    fn the_user_agent_carries_the_same_valid_runtime_as_the_beacon_identity() {
+        let user_agent = sdk_user_agent();
+        let prefix = format!("trusted-router-rust/{}", env!("CARGO_PKG_VERSION"));
+        assert!(user_agent.starts_with(&prefix), "{user_agent}");
+        assert_eq!(user_agent.bytes().filter(|byte| *byte == b' ').count(), 1);
+        let (actual_prefix, runtime) = user_agent.split_once(' ').unwrap();
+        assert_eq!(actual_prefix, prefix);
+        assert!(valid_runtime(runtime), "{runtime}");
+        assert_eq!(runtime, sdk_identity().runtime);
+        assert!(
+            user_agent.len() <= 256,
+            "{} bytes: {user_agent}",
+            user_agent.len()
+        );
+    }
+
+    #[test]
+    fn a_missing_or_empty_compiler_release_has_a_valid_runtime_fallback() {
+        for release in [None, Some("")] {
+            let runtime = runtime_token_from_release(release);
+            assert_eq!(runtime, "rustc/unknown");
+            assert!(valid_runtime(&runtime), "{runtime}");
+        }
+    }
+
+    #[test]
+    fn adversarial_compiler_releases_never_produce_a_malformed_runtime() {
+        let overlong = format!("1.0.0+{}", "a".repeat(25));
+        let cases = [
+            ("whitespace-only", "   \t", "rustc/unknown"),
+            ("surrounding whitespace", " 1.88.0 ", "rustc/unknown"),
+            ("prerelease", "1.99.0-nightly", "rustc/1.99.0-nightly"),
+            ("build suffix", "1.88.0+build.7", "rustc/1.88.0+build.7"),
+            ("invalid punctuation", "1.0.0 (abc)", "rustc/unknown"),
+            ("unicode", "1.0.0-β", "rustc/unknown"),
+            ("over-long", overlong.as_str(), "rustc/unknown"),
+        ];
+
+        for (description, release, expected) in cases {
+            let runtime = runtime_token_from_release(Some(release));
+            assert_eq!(runtime, expected, "{description}: {release:?}");
+            assert!(
+                runtime == "rustc/unknown" || valid_runtime(&runtime),
+                "{description}: {runtime:?}"
+            );
+            assert!(valid_runtime(&runtime), "{description}: {runtime:?}");
+            assert_eq!(
+                runtime.bytes().filter(|byte| *byte == b'/').count(),
+                1,
+                "{description}: {runtime:?}"
+            );
+            assert!(
+                !runtime.chars().any(char::is_whitespace),
+                "{description}: {runtime:?}"
+            );
+        }
     }
 
     #[test]
