@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.3.0 — 2026-08-25
+
+The client-events beacon channel and User-Agent runtime parity. This is the
+first release published to crates.io; 0.1.0 and 0.2.0 were tagged but never
+uploaded, because the registry credential was not configured. The C ABI
+(`trusted_router.h`) is unchanged.
+
+### Added
+
+- Client-events beacon channel, client telemetry contract v1 §4–§6 (#25),
+  completing the channel pair alongside the `x-tr-client` header shipped in
+  0.2.0. `TelemetryReporter` owns its own HTTP client and never borrows the
+  caller's, following the `credential_free_json` precedent; a single worker
+  starts on the first record when a runtime is current. Failures, retried and
+  failed-over attempts, and anything over 30 s are always recorded, while
+  healthy fast successes are sampled at `telemetry_sample_rate` (default 0.01,
+  set via `ClientBuilder::telemetry_sample_rate`). Exact per-minute counters
+  fold error class, then endpoint, then an existing key at 256 keys; the event
+  buffer holds 1 000 and drops the oldest success first; retention is 24 h and
+  roughly 512 KiB, oldest first. Batches flush every 30 s, urgently at 50
+  events or ~60 KiB, and are trimmed to 65 536 bytes. The server can quiet the
+  channel: `x-tr-telemetry: off` is a kill switch, 4xx disables it for the
+  process, and `Retry-After` is honoured up to 600 s. `Drop` closes the
+  reporter and the final flush still delivers. Opting out disables both
+  channels and starts no worker.
+
+### Changed
+
+- The `User-Agent` now carries the contract's optional runtime suffix (#26):
+  `trusted-router-rust/<version> rustc/<release>`. Rust was the only SDK
+  omitting it, so Rust was the only SDK whose requests landed with
+  `client_sdk=tr-rust` and an empty `client_runtime` even though its own
+  beacon reported the runtime correctly. The suffix is optional in the
+  contract, so this is parity rather than a defect fix. The runtime token now
+  comes from one shared builder used by the beacon identity and every
+  User-Agent site, so the two channels cannot report different runtimes.
+
+### Fixed
+
+- The fallback JWKS client in `attestation.rs` sent no `User-Agent` at all
+  (#26). It now uses the shared builder. A caller-injected client is left
+  alone, since that one belongs to the caller.
+
 ## 0.2.0 — 2026-08-21
 
 Client telemetry header channel (contract v1), the cross-SDK hardening from the
