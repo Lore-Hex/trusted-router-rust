@@ -37,7 +37,9 @@
 //! retained ≤ 24 h under ~512 KiB oldest-first, batches trimmed to ≤ 65 536
 //! bytes, ≤ 100 events and ≤ 200 counters. Policy from a 202 is applied only
 //! when it reduces volume. 400/401/403/404/410 and `x-tr-telemetry: off`
-//! disable the reporter for the rest of the process and clear its buffers.
+//! disable that reporter and clear its buffers. The scope is the reporter,
+//! not the process: a client and its clones share one, and a separately
+//! built client gets its own and is unaffected.
 
 use super::wire::{
     merge_counter_increment, sdk_user_agent, SampleReason, SdkIdentity, WireBatch, WireCounter,

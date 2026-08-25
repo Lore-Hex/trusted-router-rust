@@ -10,6 +10,10 @@ permissions:
 
 jobs:
   crates-io:
+    # Publication happens on a version tag and nowhere else. workflow_dispatch
+    # stays available for rebuilding the FFI artifacts, but must not be able to
+    # push an immutable version to crates.io from an arbitrary branch.
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: crates-io
     env:
@@ -17,12 +21,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Publish crate
-        if: env.CARGO_REGISTRY_TOKEN != ''
-        run: cargo publish -p trusted-router --locked
-      - name: Report missing registry credentials
+      - name: Require registry credentials
         if: env.CARGO_REGISTRY_TOKEN == ''
-        run: echo '::notice::CARGO_REGISTRY_TOKEN is not configured; crates.io publication was skipped.'
+        run: |
+          echo '::error::CARGO_REGISTRY_TOKEN is not configured in the crates-io environment. Failing rather than reporting a green release that published nothing.'
+          exit 1
+      - name: The tag matches the version being published
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="trusted-router"))')"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match crate version ${version}; refusing to publish an immutable version under the wrong name"
+            exit 1
+          fi
+      - name: Publish crate
+        run: cargo publish -p trusted-router --locked
 
   ffi:
     strategy:
