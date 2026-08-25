@@ -22,8 +22,8 @@ uploaded, because the registry credential was not configured. The C ABI
   roughly 512 KiB, oldest first. Batches flush every 30 s, urgently at 50
   events or ~60 KiB, and are trimmed to 65 536 bytes. The server can quiet the
   channel: `x-tr-telemetry: off` is a kill switch; 400, 401, 403, 404 and 410
-  disable that client's reporter for its lifetime, not the process, since each
-  client builds its own; 413 drops the oversized batch and counts the loss; anything else backs off, honouring `Retry-After` up to 600 s. `Drop`
+  disable that reporter rather than the process — a client and its clones
+  share one, a separately built client is unaffected; 413 drops the oversized batch and counts the loss; anything else backs off, honouring `Retry-After` up to 600 s. `Drop`
   closes the reporter and attempts a final flush, bounded by a timeout rather
   than guaranteed to complete. Opting out disables both channels and starts no
   worker.
