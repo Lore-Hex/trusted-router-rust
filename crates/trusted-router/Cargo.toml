@@ -3,6 +3,9 @@ name = "trusted-router"
 description = "Official Rust SDK for TrustedRouter"
 keywords = ["ai", "llm", "openai", "api", "attestation"]
 categories = ["api-bindings", "web-programming::http-client"]
+# The published archive is permanent and public. Tests carry fixtures that must
+# not ship, including an RSA private key used to sign synthetic attestations.
+exclude = ["tests/**"]
 readme = "README.md"
 version.workspace = true
 edition.workspace = true

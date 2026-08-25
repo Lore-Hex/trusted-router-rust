@@ -21,10 +21,12 @@ uploaded, because the registry credential was not configured. The C ABI
   buffer holds 1 000 and drops the oldest success first; retention is 24 h and
   roughly 512 KiB, oldest first. Batches flush every 30 s, urgently at 50
   events or ~60 KiB, and are trimmed to 65 536 bytes. The server can quiet the
-  channel: `x-tr-telemetry: off` is a kill switch, 4xx disables it for the
-  process, and `Retry-After` is honoured up to 600 s. `Drop` closes the
-  reporter and the final flush still delivers. Opting out disables both
-  channels and starts no worker.
+  channel: `x-tr-telemetry: off` is a kill switch; 400, 401, 403, 404 and 410
+  disable it for the process; 413 drops the oversized batch and counts the
+  loss; anything else backs off, honouring `Retry-After` up to 600 s. `Drop`
+  closes the reporter and attempts a final flush, bounded by a timeout rather
+  than guaranteed to complete. Opting out disables both channels and starts no
+  worker.
 
 ### Changed
 
@@ -42,6 +44,17 @@ uploaded, because the registry credential was not configured. The C ABI
 - The fallback JWKS client in `attestation.rs` sent no `User-Agent` at all
   (#26). It now uses the shared builder. A caller-injected client is left
   alone, since that one belongs to the caller.
+
+### Packaging
+
+- The published archive excludes `tests/**` (#27). The test fixtures include an
+  RSA private key used to sign synthetic attestations, and `RELEASING.md`
+  requires that no private fixture ship; a crates.io upload is permanent, so
+  this has to hold before the first publish rather than be corrected after. CI
+  now asserts the packaged file list carries no key material, since a checklist
+  item did not catch it.
+- The archive now carries the Apache-2.0 `LICENSE` text, which lives at the
+  workspace root and so was not picked up from the crate directory (#27).
 
 ## 0.2.0 — 2026-08-21
 

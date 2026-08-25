@@ -17,12 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Publish crate
-        if: env.CARGO_REGISTRY_TOKEN != ''
-        run: cargo publish -p trusted-router --locked
-      - name: Report missing registry credentials
+      - name: Require registry credentials
         if: env.CARGO_REGISTRY_TOKEN == ''
-        run: echo '::notice::CARGO_REGISTRY_TOKEN is not configured; crates.io publication was skipped.'
+        run: |
+          echo '::error::CARGO_REGISTRY_TOKEN is not configured in the crates-io environment. Failing rather than reporting a green release that published nothing.'
+          exit 1
+      - name: Publish crate
+        run: cargo publish -p trusted-router --locked
 
   ffi:
     strategy:

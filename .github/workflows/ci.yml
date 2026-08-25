@@ -50,6 +50,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo package -p trusted-router --locked
+      - name: The published archive carries no keys or private fixtures
+        run: |
+          set -euo pipefail
+          # RELEASING.md requires this; crates.io uploads are immutable, so it
+          # has to hold before the upload, not after.
+          if cargo package -p trusted-router --locked --list \
+               | grep -nEi '\.(pem|key|p12|pfx|jks)$|(^|/)(secrets?|credentials?)(/|$)'; then
+            echo '::error::the packaged crate would ship the files listed above'
+            exit 1
+          fi
       - run: cargo build --release -p trusted-router-ffi
       - name: Validate C and C++ header
         run: |
