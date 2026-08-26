@@ -1,8 +1,8 @@
 //! Live production receipt verification. Run explicitly:
-//!   TRUSTEDROUTER_API_KEY=... cargo test --test receipt_live_smoke -- --ignored
+//!   `TRUSTEDROUTER_API_KEY=... cargo test --test receipt_live_smoke -- --ignored`
 //!
 //! Exercises the receipt-key attestation path against a REAL Confidential
-//! Space key-binding document — the layer the frozen parity fixtures cannot
+//! Space key-binding document (`gcp-cs-jwt`) — the layer the frozen parity fixtures cannot
 //! reach (their attestations are placeholders).
 
 use base64::Engine as _;
