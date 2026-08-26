@@ -10,6 +10,7 @@ mod client;
 mod constants;
 mod error;
 mod oauth;
+mod receipts;
 mod sse;
 mod telemetry;
 mod tools;
@@ -30,6 +31,11 @@ pub use oauth::{
     create_pkce_pair, random_oauth_state, OAuthAuthorization, OAuthAuthorizeOptions, OAuthCallback,
     OAuthKeyExchangeRequest, OAuthKeyExchangeResponse, OAuthLoopback, OAuthLoopbackOptions,
     OAuthPkcePair,
+};
+pub use receipts::{
+    verify_receipt, MissingAttestationError, ReceiptAttestationStatus, ReceiptCapture,
+    ReceiptClaims, ReceiptHashClaims, ReceiptModelClaims, ReceiptResult, ReceiptUpstreamClaims,
+    ReceiptVerificationError, ReceiptVerificationOptions, UnsupportedAttestationError,
 };
 pub use sse::{JsonStream, ResponseEventStream, SseEvent, SseStream, TextStream};
 pub use tools::{
