@@ -235,6 +235,15 @@ The certificate and exporter must come from the same TLS connection that fetched
 the attestation. Supplying values from a separate connection weakens the binding
 and is intentionally not presented as equivalent.
 
+### Receipt attestation documents
+
+Flattened receipts carry their GCP receipt-key attestation. Compact receipts
+instead pin the document with `att_sha256`; pass the exact document bytes as
+`ReceiptVerificationOptions::attestation` to verify the full receipt-key chain.
+The `/receipt-attestation` endpoint serves a **per-instance** document. Behind a
+load balancer, retry that fetch until its SHA-256 matches the compact receipt's
+`att_sha256` claim.
+
 ## More
 
 - [API parity](PARITY.md)

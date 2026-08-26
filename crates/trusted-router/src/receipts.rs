@@ -1,7 +1,7 @@
 //! Offline verification for signed inference receipts (wire format v1).
 
 use crate::attestation::{
-    policy_from_trust_release, verify_gateway_attestation, AttestationVerificationOptions,
+    policy_from_trust_release, verify_receipt_key_attestation, AttestationVerificationOptions,
     TrustRelease,
 };
 use crate::constants::DEFAULT_TRUST_RELEASE_URL;
@@ -55,7 +55,7 @@ pub enum ReceiptVerificationError {
     /// A request or response byte digest check failed.
     #[error("receipt hash verification failed: {0}")]
     Hash(String),
-    /// Embedded attestation evidence did not verify.
+    /// Receipt-key attestation evidence did not verify.
     #[error("receipt attestation verification failed: {0}")]
     Attestation(String),
     /// Required attestation evidence is absent.
@@ -91,6 +91,13 @@ pub struct ReceiptVerificationOptions<'a> {
     pub max_age_seconds: Option<u64>,
     /// Unix time in seconds used for deterministic verification.
     pub now: Option<i64>,
+    /// Exact GCP attestation-document bytes for a compact receipt.
+    ///
+    /// The document must hash to the receipt's `att_sha256` claim. For a
+    /// flattened receipt, supplied bytes must exactly match its embedded
+    /// document. `/receipt-attestation` serves per-instance evidence, so retry
+    /// that fetch until its SHA-256 matches `att_sha256`.
+    pub attestation: Option<&'a [u8]>,
     /// Whether missing attestation evidence is an error.
     pub require_attestation: bool,
 }
@@ -104,6 +111,7 @@ impl Default for ReceiptVerificationOptions<'_> {
             expected_nonce: None,
             max_age_seconds: None,
             now: None,
+            attestation: None,
             require_attestation: true,
         }
     }
@@ -153,7 +161,7 @@ pub struct ReceiptUpstreamClaims {
 /// Whether attestation evidence was verified by this SDK.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceiptAttestationStatus {
-    /// Embedded evidence chained through the SDK's attestation verifier.
+    /// Receipt-key evidence chained through the SDK's attestation verifier.
     Verified,
     /// The caller explicitly accepted signature-and-hashes-only verification.
     UnverifiedByThisSdk,
@@ -221,9 +229,16 @@ struct SseEvent<'a> {
 
 /// Verifies a compact or flattened inference receipt and returns typed claims.
 ///
-/// Compact receipts omit their attestation document. Set
+/// Compact receipts omit their attestation document. Supply its exact bytes in
+/// [`ReceiptVerificationOptions::attestation`] to check the pinned digest and
+/// receipt-key binding, or set
 /// [`ReceiptVerificationOptions::require_attestation`] to `false` explicitly
-/// to verify only their signature, claims, and supplied byte hashes.
+/// to verify only the signature, claims, and supplied byte hashes. The
+/// `/receipt-attestation` endpoint serves the per-instance document; callers
+/// behind a load balancer should retry until SHA-256 matches `att_sha256`.
+///
+/// Flattened receipts always verify embedded evidence. If `attestation` is
+/// supplied for one, it must exactly match the embedded document.
 pub async fn verify_receipt(
     receipt: impl AsRef<[u8]>,
     options: ReceiptVerificationOptions<'_>,
@@ -238,7 +253,7 @@ async fn verify_receipt_with<F, Fut>(
     verify_gcp: F,
 ) -> ReceiptResult<ReceiptClaims>
 where
-    F: FnOnce(String, [u8; 32]) -> Fut,
+    F: FnOnce(Vec<u8>, [u8; 32]) -> Fut,
     Fut: Future<Output = ReceiptResult<()>>,
 {
     // Checks deliberately remain in the contract's fail-closed order.
@@ -445,6 +460,8 @@ where
     let attestation_status = attestation_status(
         &envelope,
         &header,
+        options.attestation,
+        att_sha256.as_deref(),
         options.require_attestation,
         |attestation| verify_gcp(attestation, key_commitment(&header.public_key)),
     )
@@ -619,22 +636,41 @@ fn verify_signature(envelope: &JwsEnvelope, public_key: &[u8; 32]) -> ReceiptRes
 async fn attestation_status<F, Fut>(
     envelope: &JwsEnvelope,
     header: &ParsedHeader,
+    supplied_attestation: Option<&[u8]>,
+    att_sha256: Option<&str>,
     require_attestation: bool,
     verify_gcp: F,
 ) -> ReceiptResult<ReceiptAttestationStatus>
 where
-    F: FnOnce(String) -> Fut,
+    F: FnOnce(Vec<u8>) -> Fut,
     Fut: Future<Output = ReceiptResult<()>>,
 {
     if !envelope.flattened {
-        if require_attestation {
+        let Some(attestation) = supplied_attestation else {
+            if !require_attestation {
+                return Ok(ReceiptAttestationStatus::UnverifiedByThisSdk);
+            }
             return Err(MissingAttestationError(
                 "attestation check failed: compact receipts omit attestation evidence; obtain the pinned document or explicitly set require_attestation to false"
                     .to_owned(),
             )
             .into());
+        };
+        let encoded_digest = att_sha256.ok_or_else(|| {
+            ReceiptVerificationError::from(MissingAttestationError(
+                "attestation check failed: compact receipt has no att_sha256 claim".to_owned(),
+            ))
+        })?;
+        let expected_digest = decode_b64(encoded_digest, "att_sha256 claim")?;
+        let actual_digest = Sha256::digest(attestation);
+        if !safe_equal(&actual_digest, &expected_digest) {
+            return Err(ReceiptVerificationError::Attestation(
+                "att_sha256 check failed: supplied attestation does not match the compact receipt"
+                    .to_owned(),
+            ));
         }
-        return Ok(ReceiptAttestationStatus::UnverifiedByThisSdk);
+        verify_gcp(attestation.to_vec()).await?;
+        return Ok(ReceiptAttestationStatus::Verified);
     }
     let kind = header.value.get("att_kind");
     match kind.and_then(Value::as_str) {
@@ -660,7 +696,7 @@ where
             .into());
         }
     }
-    let attestation = header
+    let embedded_attestation = header
         .value
         .get("att")
         .and_then(Value::as_str)
@@ -670,11 +706,19 @@ where
                 "attestation check failed: flattened receipt has no embedded att".to_owned(),
             ))
         })?;
-    verify_gcp(attestation.to_owned()).await?;
+    if supplied_attestation
+        .is_some_and(|supplied| !safe_equal(supplied, embedded_attestation.as_bytes()))
+    {
+        return Err(ReceiptVerificationError::Attestation(
+            "attestation check failed: supplied attestation does not match the flattened receipt's embedded attestation"
+                .to_owned(),
+        ));
+    }
+    verify_gcp(embedded_attestation.as_bytes().to_vec()).await?;
     Ok(ReceiptAttestationStatus::Verified)
 }
 
-async fn verify_gcp_attestation(attestation: String, commitment: [u8; 32]) -> ReceiptResult<()> {
+async fn verify_gcp_attestation(attestation: Vec<u8>, commitment: [u8; 32]) -> ReceiptResult<()> {
     let client = reqwest::Client::builder()
         .user_agent(sdk_user_agent())
         .redirect(reqwest::redirect::Policy::none())
@@ -698,8 +742,8 @@ async fn verify_gcp_attestation(attestation: String, commitment: [u8; 32]) -> Re
     })?;
     let policy = policy_from_trust_release(&release, None)
         .map_err(|error| ReceiptVerificationError::Attestation(error.to_string()))?;
-    verify_gateway_attestation(
-        attestation.as_bytes(),
+    verify_receipt_key_attestation(
+        &attestation,
         AttestationVerificationOptions {
             policy,
             nonce_hex: Some(hex(&commitment)),
@@ -977,7 +1021,7 @@ impl<S> ReceiptCapture<S> {
         verify_gcp: F,
     ) -> ReceiptResult<ReceiptClaims>
     where
-        F: FnOnce(String, [u8; 32]) -> Fut,
+        F: FnOnce(Vec<u8>, [u8; 32]) -> Fut,
         Fut: Future<Output = ReceiptResult<()>>,
     {
         let receipt = self.receipt.as_ref().ok_or_else(|| {
@@ -1643,6 +1687,78 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn compact_receipt_verifies_a_supplied_pinned_attestation() {
+        let document = b"fake.jwt.token";
+        let mut receipt_claims = claims("body", None);
+        receipt_claims["att_sha256"] = json!(digest(document));
+        let receipt = sign(&receipt_claims, false, None, None);
+
+        let verified = verify_receipt_with(
+            &receipt,
+            ReceiptVerificationOptions {
+                now: Some(NOW),
+                attestation: Some(document),
+                ..ReceiptVerificationOptions::default()
+            },
+            |attestation, commitment| async move {
+                assert_eq!(attestation, document);
+                assert_eq!(
+                    commitment,
+                    key_commitment(&key(7).verifying_key().to_bytes())
+                );
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            verified.attestation_status,
+            ReceiptAttestationStatus::Verified
+        );
+
+        let mut changed = document.to_vec();
+        *changed.last_mut().unwrap() ^= 1;
+        let error = verify_without_evidence(
+            &receipt,
+            ReceiptVerificationOptions {
+                now: Some(NOW),
+                attestation: Some(&changed),
+                ..ReceiptVerificationOptions::default()
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            ReceiptVerificationError::Attestation(message)
+                if message.contains("att_sha256 check failed")
+        ));
+    }
+
+    #[tokio::test]
+    async fn flattened_receipt_rejects_a_mismatched_supplied_attestation() {
+        let mut receipt_claims = claims("body", None);
+        receipt_claims.as_object_mut().unwrap().remove("att_sha256");
+        let receipt = sign(&receipt_claims, true, None, None);
+        let error = verify_without_evidence(
+            &receipt,
+            ReceiptVerificationOptions {
+                now: Some(NOW),
+                attestation: Some(b"different.jwt.token"),
+                require_attestation: false,
+                ..ReceiptVerificationOptions::default()
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            ReceiptVerificationError::Attestation(message)
+                if message.contains("does not match") && message.contains("embedded")
+        ));
+    }
+
+    #[tokio::test]
     async fn duplicate_json_members_are_rejected_at_nested_depth() {
         let payload = format!(
             concat!(
@@ -1724,7 +1840,7 @@ mod tests {
             &receipt,
             options(),
             move |attestation, commitment| async move {
-                assert_eq!(attestation, "fake.jwt.token");
+                assert_eq!(attestation, b"fake.jwt.token");
                 assert_eq!(commitment, expected_commitment);
                 Ok(())
             },
