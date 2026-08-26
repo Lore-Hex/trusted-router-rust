@@ -234,12 +234,40 @@ pub struct GatewayAttestation {
     pub raw_claims: Value,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AttestationBindingMode {
+    LiveChannel,
+    ReceiptKey,
+}
+
 /// Verifies a Google-signed Confidential Space JWT and every `TrustedRouter` pin.
-#[allow(clippy::too_many_lines)]
 pub async fn verify_gateway_attestation(
     document: &[u8],
     options: AttestationVerificationOptions,
 ) -> Result<GatewayAttestation> {
+    let claims = verified_jwt_claims(document, &options).await?;
+    verify_claims(claims, &options, AttestationBindingMode::LiveChannel)
+}
+
+/// Verifies a Google-signed receipt-key attestation without live-channel binding.
+pub(crate) async fn verify_receipt_key_attestation(
+    document: &[u8],
+    options: AttestationVerificationOptions,
+) -> Result<()> {
+    if options.nonce_hex.is_none() {
+        return Err(Error::Attestation(
+            "receipt key commitment is required".to_owned(),
+        ));
+    }
+    let claims = verified_jwt_claims(document, &options).await?;
+    verify_claims(claims, &options, AttestationBindingMode::ReceiptKey)?;
+    Ok(())
+}
+
+async fn verified_jwt_claims(
+    document: &[u8],
+    options: &AttestationVerificationOptions,
+) -> Result<Value> {
     let token = std::str::from_utf8(document)
         .map_err(|error| Error::Attestation(format!("attestation is not ASCII JWT: {error}")))?
         .trim();
@@ -256,7 +284,7 @@ pub async fn verify_gateway_attestation(
         .ok_or_else(|| Error::Attestation("JWT header is missing kid".to_owned()))?;
     let jwks = match options.jwks.clone() {
         Some(value) => value,
-        None => fetch_jwks(&options).await?,
+        None => fetch_jwks(options).await?,
     };
     let key = jwks
         .get("keys")
@@ -286,7 +314,7 @@ pub async fn verify_gateway_attestation(
     let claims = decode::<Value>(token, &decoding_key, &validation)
         .map_err(|error| Error::Attestation(format!("JWT verification failed: {error}")))?
         .claims;
-    verify_claims(claims, &options)
+    Ok(claims)
 }
 
 async fn fetch_jwks(options: &AttestationVerificationOptions) -> Result<Value> {
@@ -324,6 +352,7 @@ async fn fetch_jwks(options: &AttestationVerificationOptions) -> Result<Value> {
 fn verify_claims(
     claims: Value,
     options: &AttestationVerificationOptions,
+    binding_mode: AttestationBindingMode,
 ) -> Result<GatewayAttestation> {
     let policy = &options.policy;
     if !policy.allow_debug
@@ -397,16 +426,43 @@ fn verify_claims(
         &image_reference,
         &accepted_image_references,
     )?;
+    let eat_nonces = claims.get("eat_nonce");
     let nonces = string_list(
-        claims
-            .get("eat_nonce")
+        eat_nonces
             .or_else(|| claims.get("nonces"))
             .unwrap_or(&Value::Null),
     );
     if let Some(nonce) = options.nonce_hex.as_ref() {
-        if !nonces.iter().any(|value| safe_eq(value, nonce)) {
+        let nonce_present = match binding_mode {
+            AttestationBindingMode::LiveChannel => nonces.iter().any(|value| safe_eq(value, nonce)),
+            AttestationBindingMode::ReceiptKey => string_list(eat_nonces.unwrap_or(&Value::Null))
+                .iter()
+                .any(|value| safe_eq(&value.to_ascii_lowercase(), &nonce.to_ascii_lowercase())),
+        };
+        if !nonce_present {
             return Err(Error::Attestation("nonce is not bound in JWT".to_owned()));
         }
+    }
+    if binding_mode == AttestationBindingMode::ReceiptKey {
+        // Receipt attestations certify a durable signing key, not the
+        // verifier's current TLS connection.
+        return Ok(GatewayAttestation {
+            cert_sha256: String::new(),
+            image_digest,
+            image_reference,
+            nonce: options.nonce_hex.clone(),
+            expires_at: claims
+                .get("exp")
+                .and_then(Value::as_i64)
+                .unwrap_or_default(),
+            issuer: claims
+                .get("iss")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            audience: policy.audience.clone(),
+            raw_claims: claims,
+        });
     }
     if let Some(exporter) = options.tls_exporter.as_ref() {
         if exporter.len() != EXPORTER_LENGTH {
@@ -532,4 +588,87 @@ fn hex(value: &[u8]) -> String {
 
 fn nonempty(value: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const KEY_COMMITMENT: &str = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd";
+
+    fn key_binding_claims(commitment_position: usize) -> Value {
+        let mut nonces = vec!["1".repeat(64), "2".repeat(64)];
+        nonces.insert(commitment_position, KEY_COMMITMENT.to_owned());
+        json!({
+            "iss": GCP_ISSUER,
+            "aud": "quill-cloud",
+            "exp": 4_000_000_000_i64,
+            "dbgstat": "disabled-since-boot",
+            "swname": "CONFIDENTIAL_SPACE",
+            "secboot": true,
+            "hwmodel": "GCP_INTEL_TDX",
+            "eat_nonce": nonces,
+            "submods": {"container": {
+                "image_digest": "sha256:trusted",
+                "image_reference": "registry.example/trusted:release"
+            }}
+        })
+    }
+
+    fn receipt_options(commitment: &str) -> AttestationVerificationOptions {
+        AttestationVerificationOptions {
+            policy: AttestationPolicy {
+                expected_image_digest: Some("sha256:trusted".to_owned()),
+                expected_image_reference: Some("registry.example/trusted:release".to_owned()),
+                ..AttestationPolicy::default()
+            },
+            nonce_hex: Some(commitment.to_owned()),
+            tls_certificate_der: None,
+            tls_exporter: None,
+            jwks: None,
+            jwks_url: None,
+            http_client: None,
+        }
+    }
+
+    #[test]
+    fn receipt_key_claims_pass_without_channel_binding_but_live_claims_do_not() {
+        let claims = key_binding_claims(2);
+        let options = receipt_options(KEY_COMMITMENT);
+
+        let verified =
+            verify_claims(claims.clone(), &options, AttestationBindingMode::ReceiptKey).unwrap();
+        assert_eq!(verified.cert_sha256, "");
+        assert_eq!(verified.nonce.as_deref(), Some(KEY_COMMITMENT));
+
+        let error =
+            verify_claims(claims, &options, AttestationBindingMode::LiveChannel).unwrap_err();
+        assert!(error.to_string().contains("TLS certificate"));
+    }
+
+    #[test]
+    fn receipt_key_commitment_is_set_membership_at_any_nonce_position() {
+        for position in [0, 2] {
+            verify_claims(
+                key_binding_claims(position),
+                &receipt_options(KEY_COMMITMENT),
+                AttestationBindingMode::ReceiptKey,
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn receipt_key_claims_reject_the_wrong_commitment() {
+        let mut claims = key_binding_claims(2);
+        claims["nonces"] = json!(["f".repeat(64)]);
+        let error = verify_claims(
+            claims,
+            &receipt_options(&"f".repeat(64)),
+            AttestationBindingMode::ReceiptKey,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("nonce is not bound"));
+    }
 }
