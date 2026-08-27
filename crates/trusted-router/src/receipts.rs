@@ -43,6 +43,12 @@ pub enum ReceiptVerificationError {
     /// A required receipt claim is missing, malformed, or unsupported.
     #[error("receipt claims verification failed: {0}")]
     Claims(String),
+    /// Required caller traffic for a receipt digest binding is absent.
+    #[error(transparent)]
+    MissingBinding(#[from] MissingBindingError),
+    /// The receipt issuer is invalid or does not match the caller's pin.
+    #[error(transparent)]
+    Issuer(#[from] ReceiptIssuerError),
     /// The issue time or requested age bound is invalid.
     #[error("receipt time verification failed: {0}")]
     Time(String),
@@ -70,6 +76,16 @@ pub enum ReceiptVerificationError {
 #[derive(Debug, thiserror::Error)]
 #[error("receipt attestation verification failed: {0}")]
 pub struct MissingAttestationError(pub String);
+
+/// Required caller traffic for a receipt digest binding is absent.
+#[derive(Debug, thiserror::Error)]
+#[error("receipt binding verification failed: {0}")]
+pub struct MissingBindingError(pub String);
+
+/// The receipt issuer is invalid or does not match the caller's pin.
+#[derive(Debug, thiserror::Error)]
+#[error("receipt issuer verification failed: {0}")]
+pub struct ReceiptIssuerError(pub String);
 
 /// The receipt uses an attestation kind this SDK cannot verify.
 #[derive(Debug, thiserror::Error)]
@@ -100,6 +116,11 @@ pub struct ReceiptVerificationOptions<'a> {
     pub attestation: Option<&'a [u8]>,
     /// Whether missing attestation evidence is an error.
     pub require_attestation: bool,
+    /// Whether both request and response traffic bindings are required.
+    ///
+    /// Leave this enabled unless intentionally performing signature-only or
+    /// partial-binding inspection.
+    pub require_bindings: bool,
 }
 
 impl Default for ReceiptVerificationOptions<'_> {
@@ -113,6 +134,7 @@ impl Default for ReceiptVerificationOptions<'_> {
             now: None,
             attestation: None,
             require_attestation: true,
+            require_bindings: true,
         }
     }
 }
@@ -172,7 +194,7 @@ pub enum ReceiptAttestationStatus {
 pub struct ReceiptClaims {
     /// Receipt format version.
     pub rv: i64,
-    /// Canonical issuer origin.
+    /// Issuer origin as carried in the verified receipt.
     pub iss: String,
     /// Unix issue time.
     pub iat: i64,
@@ -229,6 +251,13 @@ struct SseEvent<'a> {
 
 /// Verifies a compact or flattened inference receipt and returns typed claims.
 ///
+/// `expected_issuer` is required and pins the receipt to an HTTPS origin after
+/// normalizing scheme and host case, a default port, and one trailing slash.
+/// Request bytes and exactly one response representation are required by
+/// default so the signed digests are bound to the caller's traffic. Set
+/// [`ReceiptVerificationOptions::require_bindings`] to `false` explicitly to
+/// permit signature-only or partial-binding inspection.
+///
 /// Compact receipts omit their attestation document. Supply its exact bytes in
 /// [`ReceiptVerificationOptions::attestation`] to check the pinned digest and
 /// receipt-key binding, or set
@@ -241,14 +270,22 @@ struct SseEvent<'a> {
 /// supplied for one, it must exactly match the embedded document.
 pub async fn verify_receipt(
     receipt: impl AsRef<[u8]>,
+    expected_issuer: &str,
     options: ReceiptVerificationOptions<'_>,
 ) -> ReceiptResult<ReceiptClaims> {
-    verify_receipt_with(receipt.as_ref(), options, verify_gcp_attestation).await
+    verify_receipt_with(
+        receipt.as_ref(),
+        expected_issuer,
+        options,
+        verify_gcp_attestation,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_lines)]
 async fn verify_receipt_with<F, Fut>(
     receipt: &[u8],
+    expected_issuer: &str,
     options: ReceiptVerificationOptions<'_>,
     verify_gcp: F,
 ) -> ReceiptResult<ReceiptClaims>
@@ -257,6 +294,8 @@ where
     Fut: Future<Output = ReceiptResult<()>>,
 {
     // Checks deliberately remain in the contract's fail-closed order.
+    require_traffic_bindings(&options)?;
+    let canonical_expected_issuer = canonical_https_origin(expected_issuer, "expected_issuer")?;
     let envelope = parse_envelope(receipt)?;
     let header = parse_header(&envelope)?;
     let payload_bytes = verify_signature(&envelope, &header.public_key)?;
@@ -273,6 +312,17 @@ where
             "rv claim check failed: expected integer 1, got {}",
             display_value(claims.get("rv"))
         )));
+    }
+    let iss = required_string(claims, "iss", "claims")?;
+    let canonical_issuer = canonical_https_origin(&iss, "iss claim")?;
+    if !safe_equal(
+        canonical_issuer.as_bytes(),
+        canonical_expected_issuer.as_bytes(),
+    ) {
+        return Err(ReceiptIssuerError(format!(
+            "iss claim check failed: expected {canonical_expected_issuer:?}, got {canonical_issuer:?}"
+        ))
+        .into());
     }
     let iat = integer(
         claims.get("iat"),
@@ -308,7 +358,6 @@ where
         }
     }
 
-    let iss = required_string(claims, "iss", "claims")?;
     let jti = required_string(claims, "jti", "claims")?;
     let gen = optional_string(claims, "gen", "claims")?;
     let route = required_string(claims, "route", "claims")?;
@@ -633,6 +682,94 @@ fn verify_signature(envelope: &JwsEnvelope, public_key: &[u8; 32]) -> ReceiptRes
     Ok(payload)
 }
 
+fn canonical_https_origin(value: &str, check: &str) -> ReceiptResult<String> {
+    if value.is_empty() {
+        return Err(ReceiptIssuerError(format!(
+            "{check} check failed: required HTTPS origin is missing"
+        ))
+        .into());
+    }
+    let parsed = url::Url::parse(value).map_err(|_| {
+        ReceiptVerificationError::from(ReceiptIssuerError(format!(
+            "{check} check failed: invalid HTTPS origin"
+        )))
+    })?;
+    if parsed.scheme() != "https" {
+        return Err(ReceiptIssuerError(format!(
+            "{check} check failed: issuer origin must use https"
+        ))
+        .into());
+    }
+    if parsed.host().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.path() != "/"
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(ReceiptIssuerError(format!(
+            "{check} check failed: expected an origin with no path, query, or fragment"
+        ))
+        .into());
+    }
+
+    let host = match parsed.host().expect("host presence was checked") {
+        url::Host::Domain(host) => host.to_owned(),
+        url::Host::Ipv4(host) => host.to_string(),
+        url::Host::Ipv6(host) => format!("[{host}]"),
+    };
+    let canonical = parsed.port().map_or_else(
+        || format!("https://{host}"),
+        |port| format!("https://{host}:{port}"),
+    );
+
+    // The URL parser deliberately normalizes more than this contract allows.
+    // Accept only scheme/host case folding, one trailing slash, and an
+    // explicit default HTTPS port in addition to the canonical spelling.
+    let normalized_input = value
+        .strip_suffix('/')
+        .unwrap_or(value)
+        .to_ascii_lowercase();
+    let canonical_input = canonical.to_ascii_lowercase();
+    let explicit_default_port = format!("{canonical_input}:443");
+    if normalized_input != canonical_input
+        && (parsed.port().is_some() || normalized_input != explicit_default_port)
+    {
+        return Err(
+            ReceiptIssuerError(format!("{check} check failed: invalid HTTPS origin")).into(),
+        );
+    }
+    Ok(canonical)
+}
+
+fn require_traffic_bindings(options: &ReceiptVerificationOptions<'_>) -> ReceiptResult<()> {
+    if !options.require_bindings {
+        return Ok(());
+    }
+    let missing_request = options.request_body.is_none();
+    let missing_response = options.response_body.is_none() && options.response_stream.is_none();
+    if missing_request && missing_response {
+        return Err(MissingBindingError(
+            "receipt binding check failed: missing request_body and response_body or response_stream"
+                .to_owned(),
+        )
+        .into());
+    }
+    if missing_request {
+        return Err(MissingBindingError(
+            "receipt binding check failed: missing request_body".to_owned(),
+        )
+        .into());
+    }
+    if missing_response {
+        return Err(MissingBindingError(
+            "receipt binding check failed: missing response_body or response_stream".to_owned(),
+        )
+        .into());
+    }
+    Ok(())
+}
+
 async fn attestation_status<F, Fut>(
     envelope: &JwsEnvelope,
     header: &ParsedHeader,
@@ -724,8 +861,9 @@ async fn verify_gcp_attestation(attestation: Vec<u8>, commitment: [u8; 32]) -> R
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| ReceiptVerificationError::Attestation(error.to_string()))?;
+    let [trust_release_url, jwks_url] = receipt_verification_material_urls();
     let response = client
-        .get(DEFAULT_TRUST_RELEASE_URL)
+        .get(trust_release_url)
         .send()
         .await
         .map_err(|error| {
@@ -750,7 +888,7 @@ async fn verify_gcp_attestation(attestation: Vec<u8>, commitment: [u8; 32]) -> R
             tls_certificate_der: None,
             tls_exporter: None,
             jwks: None,
-            jwks_url: None,
+            jwks_url: Some(jwks_url.to_owned()),
             http_client: Some(client),
         },
     )
@@ -759,6 +897,10 @@ async fn verify_gcp_attestation(attestation: Vec<u8>, commitment: [u8; 32]) -> R
         ReceiptVerificationError::Attestation(format!("GCP attestation check failed: {error}"))
     })?;
     Ok(())
+}
+
+fn receipt_verification_material_urls() -> [&'static str; 2] {
+    [DEFAULT_TRUST_RELEASE_URL, crate::attestation::GCP_JWKS_URL]
 }
 
 fn digest_claim(
@@ -1010,13 +1152,16 @@ impl<S> ReceiptCapture<S> {
     /// Verifies the discovered receipt against the exact captured stream.
     pub async fn verify<'a>(
         &'a self,
+        expected_issuer: &str,
         options: ReceiptVerificationOptions<'a>,
     ) -> ReceiptResult<ReceiptClaims> {
-        self.verify_with(options, verify_gcp_attestation).await
+        self.verify_with(expected_issuer, options, verify_gcp_attestation)
+            .await
     }
 
     async fn verify_with<'a, F, Fut>(
         &'a self,
+        expected_issuer: &str,
         mut options: ReceiptVerificationOptions<'a>,
         verify_gcp: F,
     ) -> ReceiptResult<ReceiptClaims>
@@ -1041,7 +1186,7 @@ impl<S> ReceiptCapture<S> {
                 "receipt capture serialization failed: {error}"
             ))
         })?;
-        verify_receipt_with(&encoded, options, verify_gcp).await
+        verify_receipt_with(&encoded, expected_issuer, options, verify_gcp).await
     }
 
     fn refresh_receipt(&mut self) {
@@ -1309,8 +1454,10 @@ mod tests {
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
 
     const NOW: i64 = 1_756_223_999;
+    const EXPECTED_ISSUER: &str = "https://api.trustedrouter.com";
 
     fn digest(value: &[u8]) -> String {
         URL_SAFE_NO_PAD.encode(Sha256::digest(value))
@@ -1448,6 +1595,7 @@ mod tests {
         ReceiptVerificationOptions {
             now: Some(NOW),
             require_attestation: false,
+            require_bindings: false,
             ..ReceiptVerificationOptions::default()
         }
     }
@@ -1456,9 +1604,20 @@ mod tests {
         receipt: &[u8],
         options: ReceiptVerificationOptions<'_>,
     ) -> ReceiptResult<ReceiptClaims> {
-        verify_receipt_with(receipt, options, |_attestation, _commitment| async {
-            Ok(())
-        })
+        verify_without_evidence_at(receipt, EXPECTED_ISSUER, options).await
+    }
+
+    async fn verify_without_evidence_at(
+        receipt: &[u8],
+        expected_issuer: &str,
+        options: ReceiptVerificationOptions<'_>,
+    ) -> ReceiptResult<ReceiptClaims> {
+        verify_receipt_with(
+            receipt,
+            expected_issuer,
+            options,
+            |_attestation, _commitment| async { Ok(()) },
+        )
         .await
     }
 
@@ -1486,7 +1645,7 @@ mod tests {
                     .unwrap(),
                 ..ReceiptVerificationOptions::default()
             };
-            let verified = verify_without_evidence(&receipt, fixture_options)
+            let verified = verify_without_evidence_at(&receipt, EXPECTED_ISSUER, fixture_options)
                 .await
                 .unwrap_or_else(|error| panic!("fixture {name} failed: {error}"));
             assert_eq!(verified.rv, 1);
@@ -1513,6 +1672,185 @@ mod tests {
             verified.attestation_status,
             ReceiptAttestationStatus::UnverifiedByThisSdk
         );
+    }
+
+    #[tokio::test]
+    async fn bindings_are_required_by_default_and_can_be_explicitly_disabled() {
+        let receipt = sign(&claims("body", None), false, None, None);
+        let error = verify_without_evidence(
+            &receipt,
+            ReceiptVerificationOptions {
+                now: Some(NOW),
+                require_attestation: false,
+                ..ReceiptVerificationOptions::default()
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            ReceiptVerificationError::MissingBinding(MissingBindingError(message))
+                if message.contains("missing request_body and response_body or response_stream")
+        ));
+
+        let verified = verify_without_evidence(&receipt, options()).await.unwrap();
+        assert_eq!(verified.iss, EXPECTED_ISSUER);
+    }
+
+    #[tokio::test]
+    async fn partial_bindings_fail_closed_by_default() {
+        let receipt = sign(&claims("body", None), false, None, None);
+        let base = ReceiptVerificationOptions {
+            now: Some(NOW),
+            require_attestation: false,
+            ..ReceiptVerificationOptions::default()
+        };
+        let error = verify_without_evidence(
+            &receipt,
+            ReceiptVerificationOptions {
+                request_body: Some(b"request"),
+                ..base.clone()
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            ReceiptVerificationError::MissingBinding(MissingBindingError(message))
+                if message.contains("missing response_body or response_stream")
+        ));
+
+        let error = verify_without_evidence(
+            &receipt,
+            ReceiptVerificationOptions {
+                response_body: Some(b"response"),
+                ..base
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            ReceiptVerificationError::MissingBinding(MissingBindingError(message))
+                if message.contains("missing request_body")
+        ));
+    }
+
+    #[tokio::test]
+    async fn expected_issuer_exact_match_passes_and_mismatch_is_typed() {
+        let receipt = sign(&claims("body", None), false, None, None);
+        let verified = verify_without_evidence(&receipt, options()).await.unwrap();
+        assert_eq!(verified.iss, EXPECTED_ISSUER);
+
+        let error = verify_without_evidence_at(&receipt, "https://other.example", options())
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            ReceiptVerificationError::Issuer(ReceiptIssuerError(message))
+                if message.contains("iss claim check failed: expected")
+        ));
+    }
+
+    #[tokio::test]
+    async fn issuer_origin_normalization_accepts_case_slash_and_default_port() {
+        for (receipt_issuer, expected_issuer) in [
+            (
+                "https://API.TrustedRouter.COM/",
+                "HTTPS://api.trustedrouter.com",
+            ),
+            (
+                "https://API.TrustedRouter.COM:443/",
+                "https://api.trustedrouter.com",
+            ),
+            (
+                "https://API.TrustedRouter.COM:8443/",
+                "https://api.trustedrouter.com:8443",
+            ),
+        ] {
+            let mut receipt_claims = claims("body", None);
+            receipt_claims["iss"] = json!(receipt_issuer);
+            let receipt = sign(&receipt_claims, false, None, None);
+            let verified = verify_without_evidence_at(&receipt, expected_issuer, options())
+                .await
+                .unwrap();
+            assert_eq!(verified.iss, receipt_issuer);
+        }
+    }
+
+    #[tokio::test]
+    async fn issuer_port_must_match_exactly_after_normalization() {
+        let mut receipt_claims = claims("body", None);
+        receipt_claims["iss"] = json!("https://api.trustedrouter.com:8443");
+        let receipt = sign(&receipt_claims, false, None, None);
+        assert!(matches!(
+            verify_without_evidence(&receipt, options()).await,
+            Err(ReceiptVerificationError::Issuer(ReceiptIssuerError(message)))
+                if message.contains("iss claim check failed: expected")
+        ));
+    }
+
+    #[tokio::test]
+    async fn http_receipt_issuer_is_rejected() {
+        let mut receipt_claims = claims("body", None);
+        receipt_claims["iss"] = json!("http://api.trustedrouter.com");
+        let receipt = sign(&receipt_claims, false, None, None);
+        assert!(matches!(
+            verify_without_evidence(&receipt, options()).await,
+            Err(ReceiptVerificationError::Issuer(ReceiptIssuerError(message)))
+                if message.contains("must use https")
+        ));
+
+        let receipt = sign(&claims("body", None), false, None, None);
+        assert!(matches!(
+            verify_without_evidence_at(
+                &receipt,
+                "http://api.trustedrouter.com",
+                options()
+            )
+            .await,
+            Err(ReceiptVerificationError::Issuer(ReceiptIssuerError(message)))
+                if message.contains("must use https")
+        ));
+    }
+
+    #[tokio::test]
+    async fn receipt_issuer_is_never_used_to_fetch_verification_material() {
+        let hostile_issuer = "https://evil.example";
+        let mut receipt_claims = claims("body", None);
+        receipt_claims["iss"] = json!(hostile_issuer);
+        receipt_claims.as_object_mut().unwrap().remove("att_sha256");
+        let receipt = sign(&receipt_claims, true, None, None);
+        let requested_urls = Arc::new(Mutex::new(Vec::new()));
+        let recorded_requests = Arc::clone(&requested_urls);
+        let verified = verify_receipt_with(
+            &receipt,
+            hostile_issuer,
+            options(),
+            move |attestation, commitment| async move {
+                assert_eq!(attestation, b"fake.jwt.token");
+                assert_eq!(
+                    commitment,
+                    key_commitment(&key(7).verifying_key().to_bytes())
+                );
+                for url in receipt_verification_material_urls() {
+                    // This recorder stands in at the HTTP GET boundary used by
+                    // the production verifier and observes every selected URL.
+                    recorded_requests.lock().unwrap().push(url.to_owned());
+                }
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(verified.iss, hostile_issuer);
+        let requests = requested_urls.lock().unwrap();
+        let expected_urls = receipt_verification_material_urls();
+        assert_eq!(requests.as_slice(), expected_urls);
+        assert!(requests
+            .iter()
+            .all(|url| url::Url::parse(url).unwrap().host_str() != Some("evil.example")));
     }
 
     #[tokio::test]
@@ -1664,6 +2002,7 @@ mod tests {
                 &compact,
                 ReceiptVerificationOptions {
                     now: Some(NOW),
+                    require_bindings: false,
                     ..ReceiptVerificationOptions::default()
                 }
             )
@@ -1695,9 +2034,11 @@ mod tests {
 
         let verified = verify_receipt_with(
             &receipt,
+            EXPECTED_ISSUER,
             ReceiptVerificationOptions {
                 now: Some(NOW),
                 attestation: Some(document),
+                require_bindings: false,
                 ..ReceiptVerificationOptions::default()
             },
             |attestation, commitment| async move {
@@ -1723,6 +2064,7 @@ mod tests {
             ReceiptVerificationOptions {
                 now: Some(NOW),
                 attestation: Some(&changed),
+                require_bindings: false,
                 ..ReceiptVerificationOptions::default()
             },
         )
@@ -1746,6 +2088,7 @@ mod tests {
                 now: Some(NOW),
                 attestation: Some(b"different.jwt.token"),
                 require_attestation: false,
+                require_bindings: false,
                 ..ReceiptVerificationOptions::default()
             },
         )
@@ -1824,7 +2167,11 @@ mod tests {
             Some(&serde_json::from_slice::<Value>(&receipt).unwrap())
         );
         let verified = capture
-            .verify_with(options(), |_attestation, _commitment| async { Ok(()) })
+            .verify_with(
+                EXPECTED_ISSUER,
+                options(),
+                |_attestation, _commitment| async { Ok(()) },
+            )
             .await
             .unwrap();
         assert_eq!(verified.jti, "chatcmpl-test");
@@ -1838,6 +2185,7 @@ mod tests {
         let expected_commitment = key_commitment(&key(7).verifying_key().to_bytes());
         let verified = verify_receipt_with(
             &receipt,
+            EXPECTED_ISSUER,
             options(),
             move |attestation, commitment| async move {
                 assert_eq!(attestation, b"fake.jwt.token");

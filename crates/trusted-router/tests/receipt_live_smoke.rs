@@ -10,6 +10,12 @@ use sha2::Digest as _;
 use trusted_router::{verify_receipt, ReceiptVerificationOptions};
 
 const BASE: &str = "https://api-us-central1.quillrouter.com";
+fn expected_issuer() -> String {
+    // Prod's issuer era: legacy https://api.quillrouter.com until the
+    // QUILL_RECEIPT_ISS pin ships (quill-cloud-proxy#253), canonical after.
+    std::env::var("TRUSTEDROUTER_EXPECTED_ISSUER")
+        .unwrap_or_else(|_| "https://api.trustedrouter.com".to_owned())
+}
 
 #[tokio::test]
 #[ignore = "requires TRUSTEDROUTER_API_KEY and production traffic"]
@@ -46,6 +52,7 @@ async fn streaming_receipt_verifies_with_full_attestation_chain() {
     let receipt = receipt.expect("receipt event in stream");
     let claims = verify_receipt(
         &serde_json::to_vec(&receipt).unwrap(),
+        &expected_issuer(),
         ReceiptVerificationOptions {
             request_body: Some(body),
             response_stream: Some(&wire),
@@ -115,6 +122,7 @@ async fn compact_receipt_verifies_with_fetched_attestation() {
     let attestation = attestation.expect("matching per-instance attestation within 12 fetches");
     verify_receipt(
         compact.as_bytes(),
+        &expected_issuer(),
         ReceiptVerificationOptions {
             request_body: Some(body),
             response_body: Some(&response_body),

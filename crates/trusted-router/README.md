@@ -21,5 +21,11 @@ Responses, Messages, embeddings, model and provider catalogs, privacy filters,
 orchestration builders, OAuth delegation, billing and broadcast helpers, and
 Google Confidential Space attestation verification.
 
+Receipt verification requires an explicit issuer pin (use
+`https://api.trustedrouter.com` for production TrustedRouter receipts) and
+requires request and response traffic bindings by default. The
+`ReceiptVerificationOptions::require_bindings = false` escape hatch is for
+intentional signature-only or partial-binding inspection.
+
 See the [repository README](https://github.com/Lore-Hex/trusted-router-rust) for
 the complete guide and C ABI.
