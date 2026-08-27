@@ -33,9 +33,10 @@ pub use oauth::{
     OAuthPkcePair,
 };
 pub use receipts::{
-    verify_receipt, MissingAttestationError, ReceiptAttestationStatus, ReceiptCapture,
-    ReceiptClaims, ReceiptHashClaims, ReceiptModelClaims, ReceiptResult, ReceiptUpstreamClaims,
-    ReceiptVerificationError, ReceiptVerificationOptions, UnsupportedAttestationError,
+    verify_receipt, MissingAttestationError, MissingBindingError, ReceiptAttestationStatus,
+    ReceiptCapture, ReceiptClaims, ReceiptHashClaims, ReceiptIssuerError, ReceiptModelClaims,
+    ReceiptResult, ReceiptUpstreamClaims, ReceiptVerificationError, ReceiptVerificationOptions,
+    UnsupportedAttestationError,
 };
 pub use sse::{JsonStream, ResponseEventStream, SseEvent, SseStream, TextStream};
 pub use tools::{

@@ -237,6 +237,26 @@ and is intentionally not presented as equivalent.
 
 ### Receipt attestation documents
 
+Receipt verification requires an explicit issuer pin and, by default, exact
+request bytes plus either response-body or captured response-stream bytes. For
+TrustedRouter production receipts, pin the public API origin:
+
+```rust,ignore
+let claims = verify_receipt(
+    receipt,
+    "https://api.trustedrouter.com",
+    ReceiptVerificationOptions {
+        request_body: Some(request_body),
+        response_body: Some(response_body),
+        ..Default::default()
+    },
+)
+.await?;
+```
+
+Set `ReceiptVerificationOptions::require_bindings` to `false` only for an
+intentional signature-only or partial-binding inspection.
+
 Flattened receipts carry their GCP receipt-key attestation. Compact receipts
 instead pin the document with `att_sha256`; pass the exact document bytes as
 `ReceiptVerificationOptions::attestation` to verify the full receipt-key chain.
