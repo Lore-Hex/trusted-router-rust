@@ -58,7 +58,8 @@ class ConsumerContract(unittest.TestCase):
             "CONSUMER_TARGET_DIR", ROOT / "target/consumer-dx")).resolve())
         cls.env["CARGO_TERM_COLOR"] = "never"
         listing = run(["cargo", "package", "--list", "-p", "trusted-router", "--locked", "--allow-dirty"], ROOT, cls.env)
-        cls.listing = set(listing.strip().splitlines())
+        # cargo prints native separators (backslashes on Windows); archives are POSIX.
+        cls.listing = {entry.replace('\\', '/') for entry in (set(listing.strip().splitlines()))}
         run(["cargo", "package", "-p", "trusted-router", "--locked", "--allow-dirty", "--no-verify"], ROOT, cls.env)
         package = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]
         name = f"trusted-router-{package['version']}"
