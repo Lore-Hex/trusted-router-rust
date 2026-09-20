@@ -160,6 +160,10 @@ pub(crate) fn semantic_route_relative_to_base(base: &Url, response: &Url) -> Opt
 
 /// Decodes `%XX` escapes for semantic comparison only. Malformed escapes stay
 /// literal, and decoded non-ASCII bytes cannot match an ASCII SDK route.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "Loop bounds check index and both escape bytes before indexing"
+)]
 fn percent_decode_ascii(path: &str) -> String {
     let bytes = path.as_bytes();
     let mut out = String::with_capacity(bytes.len());
@@ -182,6 +186,13 @@ fn percent_decode_ascii(path: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 mod semantic_route_tests {
     use super::{semantic_request_route, semantic_route_relative_to_base};
     use url::Url;

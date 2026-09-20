@@ -1,4 +1,16 @@
-#![allow(missing_docs)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
+#![allow(
+    missing_docs,
+    reason = "Integration test helpers are not public SDK API"
+)]
 
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde_json::json;

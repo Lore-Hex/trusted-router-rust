@@ -175,6 +175,10 @@ impl Client {
         let mut attempt = 0;
         let replay_safe = request_replay_safe(&method, options);
         loop {
+            #[allow(
+                clippy::indexing_slicing,
+                reason = "plane_urls returns a nonempty list and CandidateCursor never advances past its last index"
+            )]
             let url = candidates[cursor.index()].clone();
             if let Some(recorder) = recorder.as_mut() {
                 recorder.begin_attempt(&url);
@@ -267,7 +271,10 @@ impl Client {
     /// route, the model and provider pin from the request body — both
     /// reduced to closed vocabularies by the recorder — and the configured
     /// deadline is the per-attempt one this call will run under.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Parameters mirror the transport or C ABI boundary"
+    )]
     fn request_recorder(
         &self,
         plane: Plane,
@@ -420,6 +427,13 @@ fn request_replay_safe(method: &Method, options: &CallOptions) -> bool {
 /// sees `api.trustedrouter.com`, so the same walk also proves the
 /// `x-tr-client` header rides every attempt with the §3.2 facts.
 #[cfg(test)]
+#[allow(
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 mod candidate_walk_tests {
     use crate::client::{CallOptions, Client, Plane};
     use crate::telemetry::{self, ErrorClass};
@@ -878,7 +892,10 @@ mod candidate_walk_tests {
                 // Deprecated because a non-zero linger blocks the thread on
                 // drop; a ZERO linger is the opposite — close() sends an
                 // immediate RST, which is exactly the failure being staged.
-                #[allow(deprecated)]
+                #[allow(
+                    deprecated,
+                    reason = "Test deliberately requests a TCP reset using set_linger"
+                )]
                 let _ = socket.set_linger(Some(std::time::Duration::ZERO));
                 drop(socket);
             }

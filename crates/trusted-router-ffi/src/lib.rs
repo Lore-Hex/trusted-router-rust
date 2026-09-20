@@ -103,7 +103,10 @@ pub unsafe extern "C" fn tr_request_json(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Parameters mirror the transport or C ABI boundary"
+)]
 unsafe fn tr_request_json_with_policy(
     client: *mut TrClient,
     plane: c_int,
@@ -355,6 +358,13 @@ fn generated_idempotency_key() -> String {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 mod tests {
     use super::*;
     use std::io::{Read, Write};

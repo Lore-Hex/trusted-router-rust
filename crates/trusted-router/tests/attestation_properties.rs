@@ -1,3 +1,12 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 //! Property tests for the attestation policy boundary.
 //!
 //! The law is a soundness statement about verification:
@@ -127,16 +136,15 @@ fn release_whose_lists_hold_only_empty_strings_is_refused() {
         accepted_image_references: vec![String::new()],
         ..Default::default()
     };
-    match policy_from_trust_release(&release, None) {
-        Ok(policy) => assert!(
-            policy.pins_image_identity(),
-            "accepted a policy whose only pins are empty strings"
-        ),
-        Err(error) => assert!(
-            error.to_string().contains("pins no image identity"),
-            "{error}"
-        ),
-    }
+    let error = policy_from_trust_release(&release, None).unwrap_err();
+    assert!(error.to_string().contains("pins no image identity"));
+    // A nonempty transition list takes precedence over the singleton pin.
+    let policy = AttestationPolicy {
+        expected_image_digest: Some("sha256:trusted".to_owned()),
+        expected_image_digests: vec![String::new()],
+        ..Default::default()
+    };
+    assert!(!policy.pins_image_identity());
 }
 
 #[test]

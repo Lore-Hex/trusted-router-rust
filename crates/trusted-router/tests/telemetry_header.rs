@@ -1,3 +1,12 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 //! The `x-tr-client` header channel, client telemetry contract v1 (§6.4).
 //!
 //! Every wire test drives the real engine loop through the public API against
@@ -5,7 +14,10 @@
 //! real apex hostname reaches the mock through `reqwest`'s DNS override, so
 //! the host mapping classifies exactly what production would see.
 
-#![allow(missing_docs)]
+#![allow(
+    missing_docs,
+    reason = "Integration test helpers are not public SDK API"
+)]
 
 use futures_util::StreamExt;
 use http::Method;

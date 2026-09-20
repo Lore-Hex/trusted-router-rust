@@ -282,7 +282,10 @@ pub async fn verify_receipt(
     .await
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the ordered protocol checks together for review"
+)]
 async fn verify_receipt_with<F, Fut>(
     receipt: &[u8],
     expected_issuer: &str,
@@ -533,6 +536,12 @@ where
     })
 }
 
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_in_result,
+    clippy::indexing_slicing,
+    reason = "Receipt bytes were checked ASCII; split parts are checked to have length three before indexing"
+)]
 fn parse_envelope(receipt: &[u8]) -> ReceiptResult<JwsEnvelope> {
     if !receipt.is_ascii() {
         return Err(ReceiptVerificationError::Structure(
@@ -682,6 +691,11 @@ fn verify_signature(envelope: &JwsEnvelope, public_key: &[u8; 32]) -> ReceiptRes
     Ok(payload)
 }
 
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_in_result,
+    reason = "Host presence is checked before canonicalization"
+)]
 fn canonical_https_origin(value: &str, check: &str) -> ReceiptResult<String> {
     if value.is_empty() {
         return Err(ReceiptIssuerError(format!(
@@ -1043,6 +1057,10 @@ fn stream_digest(
     Ok((digest.finalize().to_vec(), events))
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "Offset starts at zero and advances only to a delimiter end within this same stream"
+)]
 fn next_sse_event(stream: &[u8], offset: usize) -> Option<(&[u8], usize)> {
     let lf = find_subslice(&stream[offset..], b"\n\n").map(|index| offset + index + 2);
     let crlf = find_subslice(&stream[offset..], b"\r\n\r\n").map(|index| offset + index + 4);
@@ -1447,6 +1465,13 @@ fn hex(value: &[u8]) -> String {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};

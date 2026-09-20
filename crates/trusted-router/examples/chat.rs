@@ -14,7 +14,11 @@ async fn main() -> trusted_router::Result<()> {
         .await?;
     println!(
         "{}",
-        response.choices[0].message.text_content().unwrap_or("")
+        response
+            .choices
+            .first()
+            .and_then(|choice| choice.message.text_content())
+            .unwrap_or("")
     );
     Ok(())
 }

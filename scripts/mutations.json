@@ -1,0 +1,177 @@
+[
+  {
+    "name": "exchange-record-shape",
+    "file": "crates/trusted-router/src/oauth.rs",
+    "before": "if value.as_ref().is_some_and(|value| !value.is_object()) {",
+    "after": "if false {",
+    "test": "shared_auth_wire_fixtures"
+  },
+  {
+    "name": "exchange-identity-validation",
+    "file": "crates/trusted-router/src/oauth.rs",
+    "before": "validate_identity(value).map_err(serde::de::Error::custom)?;",
+    "after": "let _ = value;",
+    "test": "shared_auth_wire_fixtures"
+  },
+  {
+    "name": "userinfo-record-shape",
+    "file": "crates/trusted-router/src/oauth.rs",
+    "before": "if !value.is_object() {",
+    "after": "if false {",
+    "test": "shared_auth_wire_fixtures"
+  },
+  {
+    "name": "identity-known-string-fields",
+    "file": "crates/trusted-router/src/oauth.rs",
+    "before": "for field in [\"sub\", \"email\"] {",
+    "after": "for field in [\"unused\", \"unused2\"] {",
+    "test": "shared_auth_wire_fixtures"
+  },
+  {
+    "name": "userinfo-requires-data",
+    "file": "crates/trusted-router/src/types.rs",
+    "before": "#[serde(deserialize_with = \"crate::oauth::identity_record\")]",
+    "after": "#[serde(default, deserialize_with = \"crate::oauth::identity_record\")]",
+    "test": "shared_auth_wire_fixtures"
+  },
+  {
+    "name": "fixture-exchange-must-not-require-data",
+    "file": "crates/trusted-router/src/oauth.rs",
+    "before": "#[serde(default, deserialize_with = \"optional_record\")]",
+    "after": "#[serde(deserialize_with = \"optional_record\")]",
+    "test": "shared_auth_wire_fixtures"
+  },
+  {
+    "name": "attestation-image_digest",
+    "file": "crates/trusted-router/src/attestation.rs",
+    "before": "optional_claim_string(&claims, \"/submods/container/image_digest\")?",
+    "after": "claims.pointer(\"/submods/container/image_digest\").and_then(Value::as_str).unwrap_or_default().to_owned()",
+    "test": "attestation::tests::malformed_attestation_claims_are_not_defaulted"
+  },
+  {
+    "name": "attestation-image_reference",
+    "file": "crates/trusted-router/src/attestation.rs",
+    "before": "optional_claim_string(&claims, \"/submods/container/image_reference\")?",
+    "after": "claims.pointer(\"/submods/container/image_reference\").and_then(Value::as_str).unwrap_or_default().to_owned()",
+    "test": "attestation::tests::malformed_attestation_claims_are_not_defaulted"
+  },
+  {
+    "name": "attestation-exp-type",
+    "file": "crates/trusted-router/src/attestation.rs",
+    "before": ".ok_or_else(|| Error::Attestation(\"exp must be an integer\".to_owned()))?",
+    "after": ".unwrap_or_default()",
+    "test": "attestation::tests::malformed_attestation_claims_are_not_defaulted"
+  },
+  {
+    "name": "attestation-iss-type",
+    "file": "crates/trusted-router/src/attestation.rs",
+    "before": ".ok_or_else(|| Error::Attestation(\"iss must be a string\".to_owned()))?",
+    "after": ".unwrap_or_default()",
+    "test": "attestation::tests::malformed_attestation_claims_are_not_defaulted"
+  },
+  {
+    "name": "attestation-nonce-elements",
+    "file": "crates/trusted-router/src/attestation.rs",
+    "before": "        Value::Array(values) => values\n            .iter()\n            .map(|value| {\n                value\n                    .as_str()\n                    .map(str::to_owned)\n                    .ok_or_else(|| Error::Attestation(\"nonce must be a string\".to_owned()))\n            })\n            .collect(),",
+    "after": "        Value::Array(values) => Ok(values.iter().filter_map(Value::as_str).map(str::to_owned).collect()),",
+    "test": "attestation::tests::malformed_attestation_claims_are_not_defaulted"
+  },
+  {
+    "name": "attestation-nonce-shape",
+    "file": "crates/trusted-router/src/attestation.rs",
+    "before": "        _ => Err(Error::Attestation(\n            \"nonces must be a string or string array\".to_owned(),\n        )),",
+    "after": "        _ => Ok(Vec::new()),",
+    "test": "attestation::tests::malformed_attestation_claims_are_not_defaulted"
+  },
+  {
+    "name": "header-repeated-values",
+    "file": "crates/trusted-router/src/transport/headers.rs",
+    "before": "parsed.append(parse_header_name(name)?, parse_header_value(value)?);",
+    "after": "parsed.insert(parse_header_name(name)?, parse_header_value(value)?);",
+    "test": "header_layers_preserve_values_and_suppress_workspace"
+  },
+  {
+    "name": "header-case-insensitive-layer-override",
+    "file": "crates/trusted-router/src/transport/headers.rs",
+    "before": "headers.extend(parsed);",
+    "after": "for (name, value) in &parsed { headers.append(name.clone(), value.clone()); }",
+    "test": "header_layers_preserve_values_and_suppress_workspace"
+  },
+  {
+    "name": "header-empty-workspace-suppression",
+    "file": "crates/trusted-router/src/transport/headers.rs",
+    "before": "headers.remove(\"x-trustedrouter-workspace\");",
+    "after": "// mutation: retain the custom workspace",
+    "test": "header_layers_preserve_values_and_suppress_workspace"
+  },
+  {
+    "name": "sse-object-shape",
+    "file": "crates/trusted-router/src/sse.rs",
+    "before": "if !value.is_object() {",
+    "after": "if false {",
+    "test": "sse_consumed_fields_reject_wrong_shapes"
+  },
+  {
+    "name": "sse-event-type",
+    "file": "crates/trusted-router/src/sse.rs",
+    "before": "if value.get(\"type\").is_some_and(|kind| !kind.is_string()) {",
+    "after": "if false {",
+    "test": "sse_consumed_fields_reject_wrong_shapes"
+  },
+  {
+    "name": "sse-error-shape",
+    "file": "crates/trusted-router/src/sse.rs",
+    "before": "if !error.is_object() {",
+    "after": "if false {",
+    "test": "sse_consumed_fields_reject_wrong_shapes"
+  },
+  {
+    "name": "sse-error-status-type",
+    "file": "crates/trusted-router/src/sse.rs",
+    "before": "                .ok_or_else(|| {\n                    Error::Serialization(\n                        \"SSE error status must be an HTTP status integer\".to_owned(),\n                    )\n                })?",
+    "after": "                .unwrap_or(502)",
+    "test": "sse_consumed_fields_reject_wrong_shapes"
+  },
+  {
+    "name": "text-choices-shape",
+    "file": "crates/trusted-router/src/sse.rs",
+    "before": "    let choices = choices\n        .as_array()\n        .ok_or_else(|| Error::Serialization(\"choices must be an array\".to_owned()))?;",
+    "after": "    let Some(choices) = choices.as_array() else { return Ok(None); };",
+    "test": "chat_text_rejects_malformed_consumed_fields"
+  },
+  {
+    "name": "text-choice-shape",
+    "file": "crates/trusted-router/src/sse.rs",
+    "before": "    let choice = choice\n        .as_object()\n        .ok_or_else(|| Error::Serialization(\"choice must be an object\".to_owned()))?;",
+    "after": "    let Some(choice) = choice.as_object() else { return Ok(None); };",
+    "test": "chat_text_rejects_malformed_consumed_fields"
+  },
+  {
+    "name": "text-delta-shape",
+    "file": "crates/trusted-router/src/sse.rs",
+    "before": "    let delta = delta\n        .as_object()\n        .ok_or_else(|| Error::Serialization(\"delta must be an object\".to_owned()))?;",
+    "after": "    let Some(delta) = delta.as_object() else { return Ok(None); };",
+    "test": "chat_text_rejects_malformed_consumed_fields"
+  },
+  {
+    "name": "text-content-type",
+    "file": "crates/trusted-router/src/sse.rs",
+    "before": "        Some(_) => Err(Error::Serialization(\n            \"delta content must be a string or null\".to_owned(),\n        )),",
+    "after": "        Some(_) => Ok(None),",
+    "test": "chat_text_rejects_malformed_consumed_fields"
+  },
+  {
+    "name": "attestation-nonempty-effective-pin",
+    "file": "crates/trusted-router/src/attestation.rs",
+    "before": "        let has_pin = |single: &Option<String>, set: &[String]| {\n            if set.is_empty() {\n                single.as_ref().is_some_and(|value| !value.is_empty())\n            } else {\n                set.iter().any(|value| !value.is_empty())\n            }\n        };\n        has_pin(&self.expected_image_digest, &self.expected_image_digests)\n            || has_pin(\n                &self.expected_image_reference,\n                &self.expected_image_references,\n            )",
+    "after": "        !self.expected_image_digests.is_empty()\n            || self.expected_image_digest.is_some()\n            || !self.expected_image_references.is_empty()\n            || self.expected_image_reference.is_some()",
+    "test": "release_whose_lists_hold_only_empty_strings_is_refused"
+  },
+  {
+    "name": "attestation-empty-pin-missing-claim",
+    "file": "crates/trusted-router/src/attestation.rs",
+    "before": "!value.is_empty() && safe_eq(actual, value)",
+    "after": "safe_eq(actual, value)",
+    "test": "attestation::tests::empty_image_pin_cannot_match_a_missing_claim"
+  }
+]

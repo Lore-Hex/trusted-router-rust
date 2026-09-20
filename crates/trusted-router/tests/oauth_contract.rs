@@ -1,4 +1,16 @@
-#![allow(missing_docs)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
+#![allow(
+    missing_docs,
+    reason = "Integration test helpers are not public SDK API"
+)]
 
 use trusted_router::{
     create_pkce_pair, random_oauth_state, Client, OAuthAuthorizeOptions, OAuthLoopback,
@@ -63,4 +75,88 @@ async fn loopback_validates_state_and_captures_code() {
     let result = waiter.await.unwrap().unwrap();
     assert_eq!(result.code, "code-123");
     assert_eq!(result.state.as_deref(), Some("expected"));
+}
+
+#[tokio::test]
+async fn shared_auth_wire_fixtures() {
+    use serde_json::{json, Value};
+    use trusted_router::{CallOptions, ErrorKind, OAuthKeyExchangeRequest};
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let fixtures: Value =
+        serde_json::from_str(include_str!("fixtures/auth-wire-fixtures.json")).unwrap();
+    let server = MockServer::start().await;
+    let client = Client::builder()
+        .control_base_url(format!("{}/v1", server.uri()))
+        .max_retries(0)
+        .build()
+        .unwrap();
+    for (endpoint, verb, route) in [
+        ("exchange", "POST", "/v1/auth/keys"),
+        ("userinfo", "GET", "/v1/auth/userinfo"),
+    ] {
+        for verdict in ["accept", "reject"] {
+            for (name, payload) in fixtures[endpoint][verdict].as_object().unwrap() {
+                server.reset().await;
+                Mock::given(method(verb))
+                    .and(path(route))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(payload))
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+                let result = if endpoint == "exchange" {
+                    client
+                        .exchange_oauth_key(OAuthKeyExchangeRequest {
+                            code: "producer-fixture-code".to_owned(),
+                            code_verifier: None,
+                            code_challenge_method: None,
+                            call_options: CallOptions::default(),
+                        })
+                        .await
+                        .map(|response| serde_json::to_value(response).unwrap())
+                } else {
+                    client
+                        .user_info()
+                        .await
+                        .map(|response| serde_json::to_value(response).unwrap())
+                };
+                if verdict == "accept" {
+                    let parsed =
+                        result.unwrap_or_else(|error| panic!("{endpoint}/{name}: {error}"));
+                    for field in fixtures[endpoint]["consumed_fields"].as_array().unwrap() {
+                        assert_eq!(
+                            parsed.get(field.as_str().unwrap()),
+                            payload.get(field.as_str().unwrap()),
+                            "{endpoint}/{name}"
+                        );
+                    }
+                    // Every producer field, including unknown/nested metadata, survives.
+                    for (field, value) in payload.as_object().unwrap() {
+                        assert_eq!(parsed.get(field), Some(value), "{endpoint}/{name}/{field}");
+                    }
+                } else {
+                    assert_eq!(
+                        result.unwrap_err().kind(),
+                        ErrorKind::Serialization,
+                        "{endpoint}/{name}"
+                    );
+                }
+            }
+        }
+    }
+    // Future userinfo fields are unconstrained, just like exchange metadata.
+    server.reset().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/auth/userinfo"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                json!({"data": {"sub": null, "future": [1]}, "future": {"x": true}}),
+            ),
+        )
+        .mount(&server)
+        .await;
+    let parsed = client.user_info().await.unwrap();
+    assert_eq!(parsed.data["future"], json!([1]));
+    assert_eq!(parsed.extra["future"], json!({"x": true}));
 }

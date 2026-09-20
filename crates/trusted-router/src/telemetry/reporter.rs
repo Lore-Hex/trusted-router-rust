@@ -295,7 +295,10 @@ struct Selected {
 }
 
 #[derive(Debug)]
-#[allow(clippy::struct_excessive_bools)] // Mirrors Python's orthogonal bounded reporter flags.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Mirrors Python's orthogonal bounded reporter flags."
+)]
 struct State {
     success_sample_rate: f64,
     flush_interval: Duration,
@@ -1162,6 +1165,13 @@ impl TelemetrySink for RecordingSink {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 mod tests {
     use super::*;
     use crate::client::{CallOptions, Client, Plane};
@@ -1322,7 +1332,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)] // One ordered scenario pins all three fold fallbacks.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "One ordered scenario pins all three fold fallbacks."
+    )]
     fn counter_cap_uses_the_complete_python_fold_ladder_without_drops() {
         let reporter = TelemetryReporter::new(config(Arc::new(ManualClock::new(1)), 1.0));
         let endpoints = [
@@ -1580,7 +1593,10 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    #[allow(clippy::too_many_lines)] // One wire capture audits every nested schema boundary.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "One wire capture audits every nested schema boundary."
+    )]
     async fn wire_is_private_schema_bounded_and_uses_the_reporters_own_client() {
         let engine = MockServer::start().await;
         let beacon = MockServer::start().await;

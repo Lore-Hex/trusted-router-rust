@@ -446,6 +446,13 @@ pub(crate) fn merge_counter_increment(target: &mut CounterRow, increment: &Count
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 mod tests {
     use super::{
         runtime_token_from_release, sdk_identity, sdk_user_agent, valid_runtime, valid_semver,

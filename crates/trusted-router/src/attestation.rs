@@ -50,10 +50,18 @@ impl AttestationPolicy {
     /// silently downgrading the guarantee.
     #[must_use]
     pub fn pins_image_identity(&self) -> bool {
-        !self.expected_image_digests.is_empty()
-            || self.expected_image_digest.is_some()
-            || !self.expected_image_references.is_empty()
-            || self.expected_image_reference.is_some()
+        let has_pin = |single: &Option<String>, set: &[String]| {
+            if set.is_empty() {
+                single.as_ref().is_some_and(|value| !value.is_empty())
+            } else {
+                set.iter().any(|value| !value.is_empty())
+            }
+        };
+        has_pin(&self.expected_image_digest, &self.expected_image_digests)
+            || has_pin(
+                &self.expected_image_reference,
+                &self.expected_image_references,
+            )
     }
 }
 
@@ -348,7 +356,10 @@ async fn fetch_jwks(options: &AttestationVerificationOptions) -> Result<Value> {
         .map_err(|error| Error::Attestation(format!("invalid JWKS JSON: {error}")))
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the ordered protocol checks together for review"
+)]
 fn verify_claims(
     claims: Value,
     options: &AttestationVerificationOptions,
@@ -382,15 +393,16 @@ fn verify_claims(
             "unsupported confidential hardware: {hardware}"
         )));
     }
-    let image_digest = claims
-        .pointer("/submods/container/image_digest")
+    let image_digest = optional_claim_string(&claims, "/submods/container/image_digest")?;
+    let image_reference = optional_claim_string(&claims, "/submods/container/image_reference")?;
+    let expires_at = claims
+        .get("exp")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| Error::Attestation("exp must be an integer".to_owned()))?;
+    let issuer = claims
+        .get("iss")
         .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    let image_reference = claims
-        .pointer("/submods/container/image_reference")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
+        .ok_or_else(|| Error::Attestation("iss must be a string".to_owned()))?
         .to_owned();
     if !policy.pins_image_identity() {
         // Defence in depth for hand-constructed policies: `require_one_of` is a
@@ -431,11 +443,11 @@ fn verify_claims(
         eat_nonces
             .or_else(|| claims.get("nonces"))
             .unwrap_or(&Value::Null),
-    );
+    )?;
     if let Some(nonce) = options.nonce_hex.as_ref() {
         let nonce_present = match binding_mode {
             AttestationBindingMode::LiveChannel => nonces.iter().any(|value| safe_eq(value, nonce)),
-            AttestationBindingMode::ReceiptKey => string_list(eat_nonces.unwrap_or(&Value::Null))
+            AttestationBindingMode::ReceiptKey => string_list(eat_nonces.unwrap_or(&Value::Null))?
                 .iter()
                 .any(|value| safe_eq(&value.to_ascii_lowercase(), &nonce.to_ascii_lowercase())),
         };
@@ -451,15 +463,8 @@ fn verify_claims(
             image_digest,
             image_reference,
             nonce: options.nonce_hex.clone(),
-            expires_at: claims
-                .get("exp")
-                .and_then(Value::as_i64)
-                .unwrap_or_default(),
-            issuer: claims
-                .get("iss")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
+            expires_at,
+            issuer,
             audience: policy.audience.clone(),
             raw_claims: claims,
         });
@@ -529,29 +534,37 @@ fn verify_claims(
         image_digest,
         image_reference,
         nonce: options.nonce_hex.clone(),
-        expires_at: claims
-            .get("exp")
-            .and_then(Value::as_i64)
-            .unwrap_or_default(),
-        issuer: claims
-            .get("iss")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned(),
+        expires_at,
+        issuer,
         audience: policy.audience.clone(),
         raw_claims: claims,
     })
 }
 
-fn string_list(value: &Value) -> Vec<String> {
+fn optional_claim_string(claims: &Value, pointer: &str) -> Result<String> {
+    match claims.pointer(pointer) {
+        None => Ok(String::new()),
+        Some(Value::String(value)) => Ok(value.clone()),
+        Some(_) => Err(Error::Attestation(format!("{pointer} must be a string"))),
+    }
+}
+
+fn string_list(value: &Value) -> Result<Vec<String>> {
     match value {
-        Value::String(value) => vec![value.clone()],
+        Value::Null => Ok(Vec::new()),
+        Value::String(value) => Ok(vec![value.clone()]),
         Value::Array(values) => values
             .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| Error::Attestation("nonce must be a string".to_owned()))
+            })
             .collect(),
-        _ => Vec::new(),
+        _ => Err(Error::Attestation(
+            "nonces must be a string or string array".to_owned(),
+        )),
     }
 }
 
@@ -565,7 +578,11 @@ fn require_equal(field: &str, actual: &str, expected: Option<&str>) -> Result<()
 }
 
 fn require_one_of(field: &str, actual: &str, expected: &[String]) -> Result<()> {
-    if !expected.is_empty() && !expected.iter().any(|value| safe_eq(actual, value)) {
+    if !expected.is_empty()
+        && !expected
+            .iter()
+            .any(|value| !value.is_empty() && safe_eq(actual, value))
+    {
         return Err(Error::Attestation(format!("{field} pin mismatch")));
     }
     Ok(())
@@ -591,6 +608,13 @@ fn nonempty(value: &str) -> Option<String> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 mod tests {
     use super::*;
     use serde_json::json;
@@ -670,5 +694,55 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("nonce is not bound"));
+    }
+    #[test]
+    fn malformed_attestation_claims_are_not_defaulted() {
+        for (pointer, replacement) in [
+            ("/submods/container/image_digest", json!(7)),
+            ("/submods/container/image_reference", json!([])),
+            ("/exp", json!("tomorrow")),
+            ("/iss", json!(7)),
+            ("/eat_nonce", json!([KEY_COMMITMENT, 7])),
+            ("/eat_nonce", json!(7)),
+        ] {
+            let mut claims = key_binding_claims(0);
+            *claims.pointer_mut(pointer).unwrap() = replacement;
+            let mut options = receipt_options(KEY_COMMITMENT);
+            // Validate malformed fields even when only the other image field is pinned,
+            // or when the caller isn't asking for nonce membership.
+            if pointer.ends_with("image_digest") {
+                options.policy.expected_image_digest = None;
+            }
+            if pointer.ends_with("image_reference") {
+                options.policy.expected_image_reference = None;
+            }
+            if pointer == "/eat_nonce" {
+                options.nonce_hex = None;
+            }
+            assert!(
+                matches!(
+                    verify_claims(claims, &options, AttestationBindingMode::ReceiptKey),
+                    Err(Error::Attestation(_))
+                ),
+                "{pointer}"
+            );
+        }
+    }
+    #[test]
+    fn empty_image_pin_cannot_match_a_missing_claim() {
+        let mut claims = key_binding_claims(0);
+        claims
+            .pointer_mut("/submods/container")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .remove("image_digest");
+        let mut options = receipt_options(KEY_COMMITMENT);
+        options.policy.expected_image_digests = vec!["sha256:trusted".to_owned(), String::new()];
+        options.policy.expected_image_reference = None;
+        assert!(matches!(
+            verify_claims(claims, &options, AttestationBindingMode::ReceiptKey),
+            Err(Error::Attestation(_))
+        ));
     }
 }
