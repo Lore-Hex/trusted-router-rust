@@ -1,0 +1,2278 @@
+{
+  "protocol_version": 1,
+  "metadata": {
+    "generated_at_utc": "2026-09-20T17:25:25Z",
+    "harness": {
+      "path": "/private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/conf-venv/lib/python3.12/site-packages/trusted_router_conformance/_data",
+      "exists": true,
+      "git": {
+        "is_repository": false,
+        "sha": null,
+        "dirty": null
+      }
+    },
+    "sdks": {
+      "rust": {
+        "path": "/private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2",
+        "exists": true,
+        "git": {
+          "is_repository": true,
+          "sha": "20f5012ba62b85ae6e84bc87e7b8720095c17f6d",
+          "dirty": true
+        }
+      }
+    },
+    "environment": {
+      "os": {
+        "system": "Darwin",
+        "release": "23.6.0",
+        "version": "Darwin Kernel Version 23.6.0: Mon Jul 29 21:16:46 PDT 2024; root:xnu-10063.141.2~1/RELEASE_ARM64_T8112",
+        "machine": "arm64",
+        "platform": "macOS-14.6.1-arm64-arm-64bit"
+      },
+      "python": {
+        "implementation": "CPython",
+        "version": "3.12.3",
+        "executable": "/private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/conf-venv/bin/python"
+      },
+      "toolchains": {
+        "git": {
+          "available": true,
+          "path": "/usr/bin/git",
+          "version": "git version 2.39.5 (Apple Git-154)"
+        },
+        "node": {
+          "available": true,
+          "path": "/Users/jperla/.nvm/versions/node/v20.20.2/bin/node",
+          "version": "v20.20.2"
+        },
+        "npm": {
+          "available": true,
+          "path": "/Users/jperla/.nvm/versions/node/v20.20.2/bin/npm",
+          "version": "10.8.2"
+        },
+        "go": {
+          "available": true,
+          "path": "/opt/homebrew/bin/go",
+          "version": "go version go1.23.4 darwin/arm64"
+        },
+        "rustc": {
+          "available": true,
+          "path": "/opt/homebrew/bin/rustc",
+          "version": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)"
+        },
+        "cargo": {
+          "available": true,
+          "path": "/opt/homebrew/bin/cargo",
+          "version": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)"
+        },
+        "java": {
+          "available": true,
+          "path": "/usr/bin/java",
+          "version": "openjdk version \"17.0.20.1\" 2026-08-18 OpenJDK Runtime Environment Homebrew (build 17.0.20.1+0) OpenJDK 64-Bit Server VM Homebrew (build 17.0.20.1+0, mixed mode, sharing)"
+        },
+        "javac": {
+          "available": true,
+          "path": "/usr/bin/javac",
+          "version": "javac 17.0.20.1"
+        },
+        "swift": {
+          "available": false,
+          "path": "/usr/bin/swift",
+          "version": null
+        }
+      }
+    }
+  },
+  "summary": {
+    "pass": 25,
+    "fail": 0,
+    "skip": 0
+  },
+  "skip_policy_failures": [],
+  "results": [
+    {
+      "sdk": "rust",
+      "scenario": "success",
+      "status": "pass",
+      "duration_ms": 201670,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "success",
+        "sdk": "rust",
+        "value": {
+          "ok": true
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "x-conformance-case": [
+                "success"
+              ],
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-success"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:59621"
+              ],
+              "content-length": [
+                "69"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W3siY29udGVudCI6ImNvbmZvcm1hbmNlIiwicm9sZSI6InVzZXIifV0sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[{\"content\":\"conformance\",\"role\":\"user\"}],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [
+                {
+                  "content": "conformance",
+                  "role": "user"
+                }
+              ],
+              "model": "auto"
+            },
+            "received_at_ns": 1031931288877125
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"success\",\"sdk\":\"rust\",\"value\":{\"ok\":true}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "retry-503",
+      "status": "pass",
+      "duration_ms": 8022,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "retry-503",
+        "sdk": "rust",
+        "value": {
+          "ok": true
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "x-conformance-case": [
+                "retry-503"
+              ],
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-retry-503"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:59814"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1031938924951375
+          },
+          {
+            "index": 1,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "x-conformance-case": [
+                "retry-503"
+              ],
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-retry-503"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:59814"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1031939268037791
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"retry-503\",\"sdk\":\"rust\",\"value\":{\"ok\":true}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "verdict-false",
+      "status": "pass",
+      "duration_ms": 9770,
+      "failures": [],
+      "driver_result": {
+        "error": {
+          "message": "Internal: already spent",
+          "status_code": 503,
+          "type": "trusted_router::Internal"
+        },
+        "outcome": "error",
+        "protocol_version": 1,
+        "scenario": "verdict-false",
+        "sdk": "rust",
+        "value": null
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-verdict-false"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:59829"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1031949103928458
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":{\"message\":\"Internal: already spent\",\"status_code\":503,\"type\":\"trusted_router::Internal\"},\"outcome\":\"error\",\"protocol_version\":1,\"scenario\":\"verdict-false\",\"sdk\":\"rust\",\"value\":null}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "verdict-true",
+      "status": "pass",
+      "duration_ms": 10270,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "verdict-true",
+        "sdk": "rust",
+        "value": {
+          "ok": true
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-verdict-true"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:59975"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1031959005579708
+          },
+          {
+            "index": 1,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-verdict-true"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:59975"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1031959346340583
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"verdict-true\",\"sdk\":\"rust\",\"value\":{\"ok\":true}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "retry-exhausted",
+      "status": "pass",
+      "duration_ms": 21105,
+      "failures": [],
+      "driver_result": {
+        "error": {
+          "message": "Internal: three",
+          "status_code": 503,
+          "type": "trusted_router::Internal"
+        },
+        "outcome": "error",
+        "protocol_version": 1,
+        "scenario": "retry-exhausted",
+        "sdk": "rust",
+        "value": null
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-exhausted"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60056"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1031979368884458
+          },
+          {
+            "index": 1,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-exhausted"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60056"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1031979483496000
+          },
+          {
+            "index": 2,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-exhausted"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60056"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1031980466933041
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":{\"message\":\"Internal: three\",\"status_code\":503,\"type\":\"trusted_router::Internal\"},\"outcome\":\"error\",\"protocol_version\":1,\"scenario\":\"retry-exhausted\",\"sdk\":\"rust\",\"value\":null}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "transport-disconnect",
+      "status": "pass",
+      "duration_ms": 10976,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "transport-disconnect",
+        "sdk": "rust",
+        "value": {
+          "ok": true
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-disconnect"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60076"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1031991357331708
+          },
+          {
+            "index": 1,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-disconnect"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60076"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1031991448920666
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"transport-disconnect\",\"sdk\":\"rust\",\"value\":{\"ok\":true}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "telemetry-retry",
+      "status": "pass",
+      "duration_ms": 18232,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "telemetry-retry",
+        "sdk": "rust",
+        "value": {
+          "ok": true
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "content-type": [
+                "application/json"
+              ],
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-telemetry"
+              ],
+              "x-tr-client": [
+                "v=1;a=0;s=0"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60176"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032009622078500
+          },
+          {
+            "index": 1,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "content-type": [
+                "application/json"
+              ],
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-telemetry"
+              ],
+              "x-tr-client": [
+                "v=1;a=1;po=http_error;pc=none;ph=apex;pm=91;sm=131;s=0;fo=0"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60176"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032009668917625
+          }
+        ],
+        "beacons": [
+          {
+            "path": "/v1/client-events",
+            "byte_length": 2104,
+            "json_parsed": true,
+            "schema_version": 1,
+            "events_count": 1,
+            "counters_count": 3,
+            "top_level_keys_recognized": true
+          }
+        ],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"telemetry-retry\",\"sdk\":\"rust\",\"value\":{\"ok\":true}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "reserved-header-opt-out",
+      "status": "pass",
+      "duration_ms": 9474,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "reserved-header-opt-out",
+        "sdk": "rust",
+        "value": {
+          "ok": true
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-reserved"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60198"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032019169032541
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"reserved-header-opt-out\",\"sdk\":\"rust\",\"value\":{\"ok\":true}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "retry-500",
+      "status": "pass",
+      "duration_ms": 16605,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "retry-500",
+        "sdk": "rust",
+        "value": {
+          "ok": true
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-retry-500"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60238"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032035639469333
+          },
+          {
+            "index": 1,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-retry-500"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60238"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032035777689666
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"retry-500\",\"sdk\":\"rust\",\"value\":{\"ok\":true}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "retry-429",
+      "status": "pass",
+      "duration_ms": 10626,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "retry-429",
+        "sdk": "rust",
+        "value": {
+          "ok": true
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-retry-429"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60249"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032046374089625
+          },
+          {
+            "index": 1,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-retry-429"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60249"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032046419592166
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"retry-429\",\"sdk\":\"rust\",\"value\":{\"ok\":true}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "terminal-401",
+      "status": "pass",
+      "duration_ms": 7262,
+      "failures": [],
+      "driver_result": {
+        "error": {
+          "message": "Authentication: invalid key",
+          "status_code": 401,
+          "type": "trusted_router::Authentication"
+        },
+        "outcome": "error",
+        "protocol_version": 1,
+        "scenario": "terminal-401",
+        "sdk": "rust",
+        "value": null
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-terminal-401"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60255"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032053688550125
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":{\"message\":\"Authentication: invalid key\",\"status_code\":401,\"type\":\"trusted_router::Authentication\"},\"outcome\":\"error\",\"protocol_version\":1,\"scenario\":\"terminal-401\",\"sdk\":\"rust\",\"value\":null}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "sse-truncated",
+      "status": "pass",
+      "duration_ms": 9382,
+      "failures": [],
+      "driver_result": {
+        "error": {
+          "message": "TrustedRouter endpoint unavailable: SSE stream ended before [DONE]",
+          "status_code": null,
+          "type": "trusted_router::Transport"
+        },
+        "outcome": "error",
+        "protocol_version": 1,
+        "scenario": "sse-truncated",
+        "sdk": "rust",
+        "value": null
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-req-3107a7a55ca4484eb43a3a7be287c78c"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60268"
+              ],
+              "content-length": [
+                "123"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W3siY29udGVudCI6ImNvbmZvcm1hbmNlIiwicm9sZSI6InVzZXIifV0sIm1vZGVsIjoiYXV0byIsInN0cmVhbSI6dHJ1ZSwic3RyZWFtX29wdGlvbnMiOnsiaW5jbHVkZV91c2FnZSI6dHJ1ZX19",
+            "body_text": "{\"messages\":[{\"content\":\"conformance\",\"role\":\"user\"}],\"model\":\"auto\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+            "body_json": {
+              "messages": [
+                {
+                  "content": "conformance",
+                  "role": "user"
+                }
+              ],
+              "model": "auto",
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            },
+            "received_at_ns": 1032063068062208
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":{\"message\":\"TrustedRouter endpoint unavailable: SSE stream ended before [DONE]\",\"status_code\":null,\"type\":\"trusted_router::Transport\"},\"outcome\":\"error\",\"protocol_version\":1,\"scenario\":\"sse-truncated\",\"sdk\":\"rust\",\"value\":null}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "sse-malformed",
+      "status": "pass",
+      "duration_ms": 9088,
+      "failures": [],
+      "driver_result": {
+        "error": {
+          "message": "TrustedRouter JSON error: invalid SSE JSON: key must be a string at line 1 column 2",
+          "status_code": null,
+          "type": "trusted_router::Serialization"
+        },
+        "outcome": "error",
+        "protocol_version": 1,
+        "scenario": "sse-malformed",
+        "sdk": "rust",
+        "value": null
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-req-ecb0d3482cc448bba541e6e200803b36"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60275"
+              ],
+              "content-length": [
+                "84"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byIsInN0cmVhbSI6dHJ1ZSwic3RyZWFtX29wdGlvbnMiOnsiaW5jbHVkZV91c2FnZSI6dHJ1ZX19",
+            "body_text": "{\"messages\":[],\"model\":\"auto\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+            "body_json": {
+              "messages": [],
+              "model": "auto",
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            },
+            "received_at_ns": 1032072166526125
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":{\"message\":\"TrustedRouter JSON error: invalid SSE JSON: key must be a string at line 1 column 2\",\"status_code\":null,\"type\":\"trusted_router::Serialization\"},\"outcome\":\"error\",\"protocol_version\":1,\"scenario\":\"sse-malformed\",\"sdk\":\"rust\",\"value\":null}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "cross-origin-redirect",
+      "status": "pass",
+      "duration_ms": 10113,
+      "failures": [],
+      "driver_result": {
+        "error": {
+          "message": "Internal: TrustedRouter error",
+          "status_code": 307,
+          "type": "trusted_router::Internal"
+        },
+        "outcome": "error",
+        "protocol_version": 1,
+        "scenario": "cross-origin-redirect",
+        "sdk": "rust",
+        "value": null
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "x-conformance-secret": [
+                "must-not-cross-origin"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-redirect"
+              ],
+              "x-tr-client": [
+                "v=1;a=0;s=0"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60298"
+              ],
+              "content-length": [
+                "64"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W3siY29udGVudCI6InNlY3JldCIsInJvbGUiOiJ1c2VyIn1dLCJtb2RlbCI6ImF1dG8ifQ==",
+            "body_text": "{\"messages\":[{\"content\":\"secret\",\"role\":\"user\"}],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [
+                {
+                  "content": "secret",
+                  "role": "user"
+                }
+              ],
+              "model": "auto"
+            },
+            "received_at_ns": 1032082263044750
+          }
+        ],
+        "beacons": [
+          {
+            "path": "/v1/client-events",
+            "byte_length": 1036,
+            "json_parsed": true,
+            "schema_version": 1,
+            "events_count": 0,
+            "counters_count": 2,
+            "top_level_keys_recognized": true
+          }
+        ],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":{\"message\":\"Internal: TrustedRouter error\",\"status_code\":307,\"type\":\"trusted_router::Internal\"},\"outcome\":\"error\",\"protocol_version\":1,\"scenario\":\"cross-origin-redirect\",\"sdk\":\"rust\",\"value\":null}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "generated-idempotency",
+      "status": "pass",
+      "duration_ms": 6421,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "generated-idempotency",
+        "sdk": "rust",
+        "value": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "logprobs": null,
+              "message": {
+                "content": "ok",
+                "role": "assistant"
+              }
+            }
+          ],
+          "created": 1,
+          "id": "chatcmpl-idempotent",
+          "model": "auto",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 1,
+            "cost_microdollars": null,
+            "prompt_tokens": 1,
+            "provider_usage": null,
+            "total_tokens": 2
+          }
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-req-b586abc8443447a5913e0112678e54df"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60310"
+              ],
+              "content-length": [
+                "78"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W3siY29udGVudCI6InJldHJ5Iiwicm9sZSI6InVzZXIifV0sIm1vZGVsIjoiYXV0byIsInN0cmVhbSI6ZmFsc2V9",
+            "body_text": "{\"messages\":[{\"content\":\"retry\",\"role\":\"user\"}],\"model\":\"auto\",\"stream\":false}",
+            "body_json": {
+              "messages": [
+                {
+                  "content": "retry",
+                  "role": "user"
+                }
+              ],
+              "model": "auto",
+              "stream": false
+            },
+            "received_at_ns": 1032088444199541
+          },
+          {
+            "index": 1,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-req-b586abc8443447a5913e0112678e54df"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60310"
+              ],
+              "content-length": [
+                "78"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W3siY29udGVudCI6InJldHJ5Iiwicm9sZSI6InVzZXIifV0sIm1vZGVsIjoiYXV0byIsInN0cmVhbSI6ZmFsc2V9",
+            "body_text": "{\"messages\":[{\"content\":\"retry\",\"role\":\"user\"}],\"model\":\"auto\",\"stream\":false}",
+            "body_json": {
+              "messages": [
+                {
+                  "content": "retry",
+                  "role": "user"
+                }
+              ],
+              "model": "auto",
+              "stream": false
+            },
+            "received_at_ns": 1032088699280958
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"generated-idempotency\",\"sdk\":\"rust\",\"value\":{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"logprobs\":null,\"message\":{\"content\":\"ok\",\"role\":\"assistant\"}}],\"created\":1,\"id\":\"chatcmpl-idempotent\",\"model\":\"auto\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":1,\"cost_microdollars\":null,\"prompt_tokens\":1,\"provider_usage\":null,\"total_tokens\":2}}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "generated-idempotency-disconnect",
+      "status": "pass",
+      "duration_ms": 8681,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "generated-idempotency-disconnect",
+        "sdk": "rust",
+        "value": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "logprobs": null,
+              "message": {
+                "content": "ok",
+                "role": "assistant"
+              }
+            }
+          ],
+          "created": 1,
+          "id": "chatcmpl-after-disconnect",
+          "model": "auto",
+          "object": "chat.completion",
+          "usage": null
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-req-2a69eea470a848fbabafbdefebbd3481"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60320"
+              ],
+              "content-length": [
+                "45"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byIsInN0cmVhbSI6ZmFsc2V9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\",\"stream\":false}",
+            "body_json": {
+              "messages": [],
+              "model": "auto",
+              "stream": false
+            },
+            "received_at_ns": 1032096880294125
+          },
+          {
+            "index": 1,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-req-2a69eea470a848fbabafbdefebbd3481"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60320"
+              ],
+              "content-length": [
+                "45"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byIsInN0cmVhbSI6ZmFsc2V9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\",\"stream\":false}",
+            "body_json": {
+              "messages": [],
+              "model": "auto",
+              "stream": false
+            },
+            "received_at_ns": 1032097383929166
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"generated-idempotency-disconnect\",\"sdk\":\"rust\",\"value\":{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"logprobs\":null,\"message\":{\"content\":\"ok\",\"role\":\"assistant\"}}],\"created\":1,\"id\":\"chatcmpl-after-disconnect\",\"model\":\"auto\",\"object\":\"chat.completion\",\"usage\":null}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "unsafe-post-disconnect",
+      "status": "pass",
+      "duration_ms": 6485,
+      "failures": [],
+      "driver_result": {
+        "error": {
+          "message": "TrustedRouter endpoint unavailable: error sending request for url (https://api.trustedrouter.com:60326/v1/arbitrary-mutation)",
+          "status_code": null,
+          "type": "trusted_router::Transport"
+        },
+        "outcome": "error",
+        "protocol_version": 1,
+        "scenario": "unsafe-post-disconnect",
+        "sdk": "rust",
+        "value": null
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/arbitrary-mutation",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60326"
+              ],
+              "content-length": [
+                "19"
+              ]
+            },
+            "body_base64": "eyJtdXRhdGlvbiI6Im9uY2UifQ==",
+            "body_text": "{\"mutation\":\"once\"}",
+            "body_json": {
+              "mutation": "once"
+            },
+            "received_at_ns": 1032103878964000
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":{\"message\":\"TrustedRouter endpoint unavailable: error sending request for url (https://api.trustedrouter.com:60326/v1/arbitrary-mutation)\",\"status_code\":null,\"type\":\"trusted_router::Transport\"},\"outcome\":\"error\",\"protocol_version\":1,\"scenario\":\"unsafe-post-disconnect\",\"sdk\":\"rust\",\"value\":null}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "body-timeout",
+      "status": "pass",
+      "duration_ms": 6779,
+      "failures": [],
+      "driver_result": {
+        "error": {
+          "message": "TrustedRouter request timed out: response body deadline exceeded",
+          "status_code": null,
+          "type": "trusted_router::Timeout"
+        },
+        "outcome": "error",
+        "protocol_version": 1,
+        "scenario": "body-timeout",
+        "sdk": "rust",
+        "value": null
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-body-timeout"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60329"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032110662601833
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":{\"message\":\"TrustedRouter request timed out: response body deadline exceeded\",\"status_code\":null,\"type\":\"trusted_router::Timeout\"},\"outcome\":\"error\",\"protocol_version\":1,\"scenario\":\"body-timeout\",\"sdk\":\"rust\",\"value\":null}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "caller-cancellation",
+      "status": "pass",
+      "duration_ms": 10476,
+      "failures": [],
+      "driver_result": {
+        "error": {
+          "message": "caller cancelled the SDK operation",
+          "status_code": null,
+          "type": "DriverError"
+        },
+        "outcome": "error",
+        "protocol_version": 1,
+        "scenario": "caller-cancellation",
+        "sdk": "rust",
+        "value": null
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-cancel"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60338"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032119637315541
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":{\"message\":\"caller cancelled the SDK operation\",\"status_code\":null,\"type\":\"DriverError\"},\"outcome\":\"error\",\"protocol_version\":1,\"scenario\":\"caller-cancellation\",\"sdk\":\"rust\",\"value\":null}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "oauth-no-credentials",
+      "status": "pass",
+      "duration_ms": 6373,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "oauth-no-credentials",
+        "sdk": "rust",
+        "value": {
+          "data": null,
+          "identity": null,
+          "key": "tr-delegated-conformance",
+          "user_id": "user-conformance"
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/auth/keys",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "x-conformance-default": [
+                "public-client"
+              ],
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60355"
+              ],
+              "content-length": [
+                "146"
+              ]
+            },
+            "body_base64": "eyJjb2RlIjoiY29uZm9ybWFuY2UtY29kZSIsImNvZGVfY2hhbGxlbmdlX21ldGhvZCI6IlMyNTYiLCJjb2RlX3ZlcmlmaWVyIjoiYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXpBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY3ODktLl9+YWJjIn0=",
+            "body_text": "{\"code\":\"conformance-code\",\"code_challenge_method\":\"S256\",\"code_verifier\":\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abc\"}",
+            "body_json": {
+              "code": "conformance-code",
+              "code_challenge_method": "S256",
+              "code_verifier": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abc"
+            },
+            "received_at_ns": 1032127505304666
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"oauth-no-credentials\",\"sdk\":\"rust\",\"value\":{\"data\":null,\"identity\":null,\"key\":\"tr-delegated-conformance\",\"user_id\":\"user-conformance\"}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "oauth-cross-origin-redirect",
+      "status": "pass",
+      "duration_ms": 7871,
+      "failures": [],
+      "driver_result": {
+        "error": {
+          "message": "Internal: TrustedRouter error",
+          "status_code": 307,
+          "type": "trusted_router::Internal"
+        },
+        "outcome": "error",
+        "protocol_version": 1,
+        "scenario": "oauth-cross-origin-redirect",
+        "sdk": "rust",
+        "value": null
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/auth/keys",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60364"
+              ],
+              "content-length": [
+                "115"
+              ]
+            },
+            "body_base64": "eyJjb2RlIjoiY29uZm9ybWFuY2UtY29kZSIsImNvZGVfdmVyaWZpZXIiOiJhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ekFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaMDEyMzQ1Njc4OS0uX35hYmMifQ==",
+            "body_text": "{\"code\":\"conformance-code\",\"code_verifier\":\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abc\"}",
+            "body_json": {
+              "code": "conformance-code",
+              "code_verifier": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abc"
+            },
+            "received_at_ns": 1032135387882875
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":{\"message\":\"Internal: TrustedRouter error\",\"status_code\":307,\"type\":\"trusted_router::Internal\"},\"outcome\":\"error\",\"protocol_version\":1,\"scenario\":\"oauth-cross-origin-redirect\",\"sdk\":\"rust\",\"value\":null}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "chat-model-preservation",
+      "status": "pass",
+      "duration_ms": 10800,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "chat-model-preservation",
+        "sdk": "rust",
+        "value": {
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "logprobs": null,
+              "message": {
+                "content": null,
+                "reasoning": "tool required",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "function": {
+                      "arguments": "{\"city\":\"Athens\"}",
+                      "name": "weather"
+                    },
+                    "id": "call-weather",
+                    "type": "function"
+                  }
+                ]
+              }
+            },
+            {
+              "finish_reason": "stop",
+              "index": 1,
+              "logprobs": null,
+              "message": {
+                "content": "fallback",
+                "role": "assistant"
+              }
+            }
+          ],
+          "created": 1,
+          "id": "chatcmpl-models",
+          "model": "auto",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 7,
+            "cost_microdollars": null,
+            "prompt_tokens": 5,
+            "provider_usage": null,
+            "total_tokens": 12
+          }
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-req-e7f6ccc6a4e74946992d881947fe4f61"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60373"
+              ],
+              "content-length": [
+                "78"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W3siY29udGVudCI6InRvb2xzIiwicm9sZSI6InVzZXIifV0sIm1vZGVsIjoiYXV0byIsInN0cmVhbSI6ZmFsc2V9",
+            "body_text": "{\"messages\":[{\"content\":\"tools\",\"role\":\"user\"}],\"model\":\"auto\",\"stream\":false}",
+            "body_json": {
+              "messages": [
+                {
+                  "content": "tools",
+                  "role": "user"
+                }
+              ],
+              "model": "auto",
+              "stream": false
+            },
+            "received_at_ns": 1032146189938625
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"chat-model-preservation\",\"sdk\":\"rust\",\"value\":{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"logprobs\":null,\"message\":{\"content\":null,\"reasoning\":\"tool required\",\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Athens\\\"}\",\"name\":\"weather\"},\"id\":\"call-weather\",\"type\":\"function\"}]}},{\"finish_reason\":\"stop\",\"index\":1,\"logprobs\":null,\"message\":{\"content\":\"fallback\",\"role\":\"assistant\"}}],\"created\":1,\"id\":\"chatcmpl-models\",\"model\":\"auto\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":7,\"cost_microdollars\":null,\"prompt_tokens\":5,\"provider_usage\":null,\"total_tokens\":12}}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "responses-model-preservation",
+      "status": "pass",
+      "duration_ms": 9711,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "responses-model-preservation",
+        "sdk": "rust",
+        "value": {
+          "created_at": 1,
+          "details": {
+            "provider": "conformance"
+          },
+          "error": null,
+          "id": "resp-models",
+          "model": "auto",
+          "object": "response",
+          "output": [
+            {
+              "content": [
+                {
+                  "annotations": [],
+                  "text": "preserved",
+                  "type": "output_text"
+                }
+              ],
+              "id": "msg-models",
+              "role": "assistant",
+              "type": "message"
+            }
+          ],
+          "status": "completed",
+          "usage": {
+            "input_tokens": 3,
+            "output_tokens": 4,
+            "total_tokens": 7
+          }
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/responses",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-req-5a3b103d413245a490f622a79d7b18a8"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60379"
+              ],
+              "content-length": [
+                "67"
+              ]
+            },
+            "body_base64": "eyJpbnB1dCI6ImNvbmZvcm1hbmNlIiwibW9kZWwiOiJhdXRvIiwic3RvcmUiOmZhbHNlLCJzdHJlYW0iOmZhbHNlfQ==",
+            "body_text": "{\"input\":\"conformance\",\"model\":\"auto\",\"store\":false,\"stream\":false}",
+            "body_json": {
+              "input": "conformance",
+              "model": "auto",
+              "store": false,
+              "stream": false
+            },
+            "received_at_ns": 1032155928542625
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"responses-model-preservation\",\"sdk\":\"rust\",\"value\":{\"created_at\":1,\"details\":{\"provider\":\"conformance\"},\"error\":null,\"id\":\"resp-models\",\"model\":\"auto\",\"object\":\"response\",\"output\":[{\"content\":[{\"annotations\":[],\"text\":\"preserved\",\"type\":\"output_text\"}],\"id\":\"msg-models\",\"role\":\"assistant\",\"type\":\"message\"}],\"status\":\"completed\",\"usage\":{\"input_tokens\":3,\"output_tokens\":4,\"total_tokens\":7}}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "retry-truncated-error",
+      "status": "pass",
+      "duration_ms": 6674,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "retry-truncated-error",
+        "sdk": "rust",
+        "value": {
+          "ok": true
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-truncated-error"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60385"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032162237902291
+          },
+          {
+            "index": 1,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-truncated-error"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60385"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032162562792750
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"retry-truncated-error\",\"sdk\":\"rust\",\"value\":{\"ok\":true}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    },
+    {
+      "sdk": "rust",
+      "scenario": "retry-stalled-error-body",
+      "status": "pass",
+      "duration_ms": 8281,
+      "failures": [],
+      "driver_result": {
+        "error": null,
+        "outcome": "success",
+        "protocol_version": 1,
+        "scenario": "retry-stalled-error-body",
+        "sdk": "rust",
+        "value": {
+          "ok": true
+        }
+      },
+      "transcript": {
+        "protocol_version": 1,
+        "requests": [
+          {
+            "index": 0,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-stalled-error"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60394"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032169614347666
+          },
+          {
+            "index": 1,
+            "method": "POST",
+            "target": "/v1/chat/completions",
+            "http_version": "HTTP/1.1",
+            "headers": {
+              "user-agent": [
+                "trusted-router-rust/0.3.0 rustc/1.97.1"
+              ],
+              "authorization": [
+                "Bearer tr-conformance-key"
+              ],
+              "idempotency-key": [
+                "tr-conformance-stalled-error"
+              ],
+              "content-type": [
+                "application/json"
+              ],
+              "accept": [
+                "*/*"
+              ],
+              "host": [
+                "api.trustedrouter.com:60394"
+              ],
+              "content-length": [
+                "30"
+              ]
+            },
+            "body_base64": "eyJtZXNzYWdlcyI6W10sIm1vZGVsIjoiYXV0byJ9",
+            "body_text": "{\"messages\":[],\"model\":\"auto\"}",
+            "body_json": {
+              "messages": [],
+              "model": "auto"
+            },
+            "received_at_ns": 1032170846803250
+          }
+        ],
+        "beacons": [],
+        "server_errors": []
+      },
+      "stdout": "{\"error\":null,\"outcome\":\"success\",\"protocol_version\":1,\"scenario\":\"retry-stalled-error-body\",\"sdk\":\"rust\",\"value\":{\"ok\":true}}\n",
+      "stderr": "warning: struct `BlockingClient` is never constructed\n  --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:17:12\n   |\n17 | pub struct BlockingClient {\n   |            ^^^^^^^^^^^^^^\n   |\n   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: multiple associated items are never used\n   --> /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2/crates/trusted-router/src/blocking.rs:24:12\n    |\n 22 | impl BlockingClient {\n    | ------------------- associated items in this implementation\n 23 |     /// Constructs a blocking client with production defaults.\n 24 |     pub fn new(api_key: impl Into<String>) -> Result<Self> {\n    |            ^^^\n...\n 29 |     pub fn from_builder(builder: ClientBuilder) -> Result<Self> {\n    |            ^^^^^^^^^^^^\n...\n 41 |     pub fn asynchronous(&self) -> &Client {\n    |            ^^^^^^^^^^^^\n...\n 46 |     pub fn request<T: DeserializeOwned>(\n    |            ^^^^^^^\n...\n 59 |     pub fn chat_completions(&self, request: ChatRequest) -> Result<ChatCompletion> {\n    |            ^^^^^^^^^^^^^^^^\n...\n 64 |     pub fn chat_completions_stream<F>(&self, request: ChatRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^^^^^^^^\n...\n 80 |     pub fn responses(&self, request: ResponsesRequest) -> Result<ResponseObject> {\n    |            ^^^^^^^^^\n...\n 85 |     pub fn responses_stream<F>(&self, request: ResponsesRequest, mut callback: F) -> Result<()>\n    |            ^^^^^^^^^^^^^^^^\n...\n101 |     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {\n    |            ^^^^^^^^\n...\n106 |     pub fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingResponse> {\n    |            ^^^^^^^^^^\n...\n111 |     pub fn models(&self, filters: ModelFilters) -> Result<ModelList> {\n    |            ^^^^^^\n...\n116 |     pub fn providers(&self) -> Result<ProviderList> {\n    |            ^^^^^^^^^\n...\n121 |     pub fn regions(&self) -> Result<RegionList> {\n    |            ^^^^^^^\n...\n126 |     pub fn credits(&self, options: CallOptions) -> Result<CreditsBalance> {\n    |            ^^^^^^^\n...\n131 |     pub fn raw_sse<F>(\n    |            ^^^^^^^\n...\n154 |     pub fn validated_raw_sse<F>(\n    |            ^^^^^^^^^^^^^^^^^\n\n"
+    }
+  ]
+}

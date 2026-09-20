@@ -2,7 +2,10 @@
 //!
 //! The crate keeps inference traffic on the attested API plane and account or
 //! catalog traffic on the control plane. The async [`Client`] is the primary
-//! API. Enable the default `blocking` feature for [`BlockingClient`].
+//! API. Enable the default `blocking` feature for `BlockingClient`.
+
+#![doc = include_str!("../README.md")]
+#![deny(missing_docs, rustdoc::broken_intra_doc_links)]
 
 mod attestation;
 mod blocking;

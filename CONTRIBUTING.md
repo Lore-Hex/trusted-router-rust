@@ -11,7 +11,10 @@
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-cargo doc --workspace --all-features --no-deps
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+cargo test --doc
+python3 scripts/test_consumer.py
+python3 scripts/consumer_mutation_check.py
 cargo package -p trusted-router
 ```
 
@@ -29,3 +32,10 @@ mutations. It restores original bytes in `finally` and keeps its build cache in
 Production panic/indexing exceptions must name a proved invariant in an inline
 lint `reason`. Test-only exceptions are scoped to test modules or integration-test
 crates. CI also checks that each configured boundary lint rejects a negative probe.
+
+Consumer checks require Python 3.11+. They build and inspect the `.crate`, then
+extract it into a temporary directory outside the checkout to compile every Rust
+Markdown example and run a typed consumer against a `std::net::TcpListener` fake.
+Network documentation examples use `no_run`; ignored Rust examples fail the gate.
+The consumer mutation gate works on an isolated copy and records each expected
+failure before restoring the original bytes. No live service credentials are needed.

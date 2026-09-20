@@ -1,0 +1,17 @@
+cd /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2 && cargo package --list -p trusted-router --locked --allow-dirty
+cd /private/tmp/claude-501/-Users-jperla-josh/733bc505-7008-406e-bff3-ff2a10df6555/scratchpad/wt/rust2 && cargo package -p trusted-router --locked --allow-dirty --no-verify
+test_archive (__main__.ConsumerContract.test_archive) ... ok
+test_consumer (__main__.ConsumerContract.test_consumer) ... cd /private/var/folders/th/1hvz8frd3p551wg24zytym940000gn/T/trusted-router-consumer-9cvv_vjd/consumer && cargo run --quiet
+ok
+test_examples (__main__.ConsumerContract.test_examples) ... cd /private/var/folders/th/1hvz8frd3p551wg24zytym940000gn/T/trusted-router-consumer-9cvv_vjd/trusted-router-0.3.0 && cargo test --doc --all-features
+cd /private/var/folders/th/1hvz8frd3p551wg24zytym940000gn/T/trusted-router-consumer-9cvv_vjd/consumer && cargo test --doc
+compiled/executed 9 Markdown examples; shell blocks are CI/install recipes
+ok
+test_metadata (__main__.ConsumerContract.test_metadata) ... ok
+test_public_docs (__main__.ConsumerContract.test_public_docs) ... cd /private/var/folders/th/1hvz8frd3p551wg24zytym940000gn/T/trusted-router-consumer-9cvv_vjd/trusted-router-0.3.0 && cargo doc --no-deps --all-features
+ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 44.988s
+
+OK

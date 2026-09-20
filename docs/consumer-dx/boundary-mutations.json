@@ -1,0 +1,210 @@
+{
+  "wall_seconds": 630.871,
+  "results": [
+    {
+      "name": "exchange-record-shape",
+      "test": "shared_auth_wire_fixtures",
+      "result": "killed",
+      "seconds": 29.872
+    },
+    {
+      "name": "exchange-identity-validation",
+      "test": "shared_auth_wire_fixtures",
+      "result": "killed",
+      "seconds": 19.194
+    },
+    {
+      "name": "userinfo-record-shape",
+      "test": "shared_auth_wire_fixtures",
+      "result": "killed",
+      "seconds": 20.015
+    },
+    {
+      "name": "identity-known-string-fields",
+      "test": "shared_auth_wire_fixtures",
+      "result": "killed",
+      "seconds": 17.856
+    },
+    {
+      "name": "userinfo-requires-data",
+      "test": "shared_auth_wire_fixtures",
+      "result": "killed",
+      "seconds": 18.627
+    },
+    {
+      "name": "fixture-exchange-must-not-require-data",
+      "test": "shared_auth_wire_fixtures",
+      "result": "killed",
+      "seconds": 18.59
+    },
+    {
+      "name": "attestation-image_digest",
+      "test": "attestation::tests::malformed_attestation_claims_are_not_defaulted",
+      "result": "killed",
+      "seconds": 17.791
+    },
+    {
+      "name": "attestation-image_reference",
+      "test": "attestation::tests::malformed_attestation_claims_are_not_defaulted",
+      "result": "killed",
+      "seconds": 11.098
+    },
+    {
+      "name": "attestation-exp-type",
+      "test": "attestation::tests::malformed_attestation_claims_are_not_defaulted",
+      "result": "killed",
+      "seconds": 13.574
+    },
+    {
+      "name": "attestation-iss-type",
+      "test": "attestation::tests::malformed_attestation_claims_are_not_defaulted",
+      "result": "killed",
+      "seconds": 11.371
+    },
+    {
+      "name": "attestation-nonce-elements",
+      "test": "attestation::tests::malformed_attestation_claims_are_not_defaulted",
+      "result": "killed",
+      "seconds": 15.32
+    },
+    {
+      "name": "attestation-nonce-shape",
+      "test": "attestation::tests::malformed_attestation_claims_are_not_defaulted",
+      "result": "killed",
+      "seconds": 24.469
+    },
+    {
+      "name": "header-repeated-values",
+      "test": "header_layers_preserve_values_and_suppress_workspace",
+      "result": "killed",
+      "seconds": 15.676
+    },
+    {
+      "name": "header-case-insensitive-layer-override",
+      "test": "header_layers_preserve_values_and_suppress_workspace",
+      "result": "killed",
+      "seconds": 13.442
+    },
+    {
+      "name": "header-empty-workspace-suppression",
+      "test": "header_layers_preserve_values_and_suppress_workspace",
+      "result": "killed",
+      "seconds": 11.135
+    },
+    {
+      "name": "sse-object-shape",
+      "test": "sse_consumed_fields_reject_wrong_shapes",
+      "result": "killed",
+      "seconds": 11.33
+    },
+    {
+      "name": "sse-event-type",
+      "test": "sse_consumed_fields_reject_wrong_shapes",
+      "result": "killed",
+      "seconds": 11.71
+    },
+    {
+      "name": "sse-error-shape",
+      "test": "sse_consumed_fields_reject_wrong_shapes",
+      "result": "killed",
+      "seconds": 13.717
+    },
+    {
+      "name": "sse-error-status-type",
+      "test": "sse_consumed_fields_reject_wrong_shapes",
+      "result": "killed",
+      "seconds": 13.729
+    },
+    {
+      "name": "text-choices-shape",
+      "test": "chat_text_rejects_malformed_consumed_fields",
+      "result": "killed",
+      "seconds": 12.477
+    },
+    {
+      "name": "text-choice-shape",
+      "test": "chat_text_rejects_malformed_consumed_fields",
+      "result": "killed",
+      "seconds": 11.653
+    },
+    {
+      "name": "text-delta-shape",
+      "test": "chat_text_rejects_malformed_consumed_fields",
+      "result": "killed",
+      "seconds": 11.395
+    },
+    {
+      "name": "text-content-type",
+      "test": "chat_text_rejects_malformed_consumed_fields",
+      "result": "killed",
+      "seconds": 8.487
+    },
+    {
+      "name": "attestation-nonempty-effective-pin",
+      "test": "release_whose_lists_hold_only_empty_strings_is_refused",
+      "result": "killed",
+      "seconds": 12.512
+    },
+    {
+      "name": "attestation-empty-pin-missing-claim",
+      "test": "attestation::tests::empty_image_pin_cannot_match_a_missing_claim",
+      "result": "killed",
+      "seconds": 11.678
+    },
+    {
+      "name": "static-1-unwrap_used",
+      "result": "rejected",
+      "seconds": 29.721
+    },
+    {
+      "name": "static-2-expect_used",
+      "result": "rejected",
+      "seconds": 7.638
+    },
+    {
+      "name": "static-3-panic",
+      "result": "rejected",
+      "seconds": 7.941
+    },
+    {
+      "name": "static-4-unreachable",
+      "result": "rejected",
+      "seconds": 7.691
+    },
+    {
+      "name": "static-5-todo",
+      "result": "rejected",
+      "seconds": 7.577
+    },
+    {
+      "name": "static-6-unimplemented",
+      "result": "rejected",
+      "seconds": 8.676
+    },
+    {
+      "name": "static-7-indexing_slicing",
+      "result": "rejected",
+      "seconds": 7.655
+    },
+    {
+      "name": "static-8-unwrap_in_result",
+      "result": "rejected",
+      "seconds": 8.331
+    },
+    {
+      "name": "static-9-as_conversions",
+      "result": "rejected",
+      "seconds": 7.758
+    },
+    {
+      "name": "static-10-unwrap_used",
+      "result": "rejected",
+      "seconds": 6.579
+    },
+    {
+      "name": "static-11-unwrap_used",
+      "result": "rejected",
+      "seconds": 6.124
+    }
+  ]
+}
