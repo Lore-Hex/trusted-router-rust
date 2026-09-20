@@ -1,0 +1,189 @@
+{
+  "wall_seconds": 183.339,
+  "results": [
+    {
+      "name": "stray-artifact-file",
+      "file": "crates/trusted-router/src/stray.txt",
+      "test": "test_archive",
+      "diagnostic": "unexpected package files: ['src/stray.txt']",
+      "result": "killed",
+      "seconds": 0.709
+    },
+    {
+      "name": "revert-package-allowlist",
+      "file": "crates/trusted-router/Cargo.toml",
+      "test": "test_archive",
+      "diagnostic": "unexpected package files: ['examples/chat.rs'",
+      "result": "killed",
+      "seconds": 0.48
+    },
+    {
+      "name": "root-readme-compile",
+      "file": "README.md",
+      "test": "test_examples",
+      "diagnostic": "missing_example",
+      "result": "killed",
+      "seconds": 27.404
+    },
+    {
+      "name": "shipped-readme-compile",
+      "file": "crates/trusted-router/README.md",
+      "test": "test_examples",
+      "diagnostic": "missing_example",
+      "result": "killed",
+      "seconds": 15.897
+    },
+    {
+      "name": "new-guide-compile",
+      "file": "docs/consumer-probe.md",
+      "test": "test_examples",
+      "diagnostic": "mismatched types",
+      "result": "killed",
+      "seconds": 27.221
+    },
+    {
+      "name": "ignored-readme-example",
+      "file": "README.md",
+      "test": "test_examples",
+      "diagnostic": "example must compile",
+      "result": "killed",
+      "seconds": 10.049
+    },
+    {
+      "name": "readme-doctest-wiring",
+      "file": "crates/trusted-router/src/lib.rs",
+      "test": "test_examples",
+      "diagnostic": "0 passed",
+      "result": "killed",
+      "seconds": 9.553
+    },
+    {
+      "name": "missing-public-docs",
+      "file": "crates/trusted-router/src/lib.rs",
+      "test": "test_public_docs",
+      "diagnostic": "missing documentation for a function",
+      "result": "killed",
+      "seconds": 2.576
+    },
+    {
+      "name": "broken-public-link",
+      "file": "crates/trusted-router/src/lib.rs",
+      "test": "test_public_docs",
+      "diagnostic": "unresolved link to `NoSuchConsumerType`",
+      "result": "killed",
+      "seconds": 2.631
+    },
+    {
+      "name": "consumer-editor-type",
+      "file": "scripts/consumer_smoke.rs",
+      "test": "test_consumer",
+      "diagnostic": "mismatched types",
+      "result": "killed",
+      "seconds": 7.286
+    },
+    {
+      "name": "consumer-wire-result",
+      "file": "scripts/consumer_smoke.rs",
+      "test": "test_consumer",
+      "diagnostic": "left: \"Wrong\"",
+      "result": "killed",
+      "seconds": 9.008
+    },
+    {
+      "name": "packaged-license",
+      "file": "crates/trusted-router/LICENSE",
+      "test": "test_metadata",
+      "diagnostic": "AssertionError",
+      "result": "killed",
+      "seconds": 0.455
+    },
+    {
+      "name": "metadata-description",
+      "file": "crates/trusted-router/Cargo.toml",
+      "test": "test_metadata",
+      "diagnostic": "missing package metadata: description",
+      "result": "killed",
+      "seconds": 0.522
+    },
+    {
+      "name": "metadata-license",
+      "file": "crates/trusted-router/Cargo.toml",
+      "test": "test_metadata",
+      "diagnostic": "missing package metadata: license",
+      "result": "killed",
+      "seconds": 0.496
+    },
+    {
+      "name": "metadata-repository",
+      "file": "crates/trusted-router/Cargo.toml",
+      "test": "test_metadata",
+      "diagnostic": "missing package metadata: repository",
+      "result": "killed",
+      "seconds": 0.518
+    },
+    {
+      "name": "metadata-url-repository",
+      "file": "crates/trusted-router/Cargo.toml",
+      "test": "test_metadata",
+      "diagnostic": "Regex didn't match",
+      "result": "killed",
+      "seconds": 0.516
+    },
+    {
+      "name": "metadata-homepage",
+      "file": "crates/trusted-router/Cargo.toml",
+      "test": "test_metadata",
+      "diagnostic": "missing package metadata: homepage",
+      "result": "killed",
+      "seconds": 0.561
+    },
+    {
+      "name": "metadata-url-homepage",
+      "file": "crates/trusted-router/Cargo.toml",
+      "test": "test_metadata",
+      "diagnostic": "Regex didn't match",
+      "result": "killed",
+      "seconds": 0.512
+    },
+    {
+      "name": "metadata-documentation",
+      "file": "crates/trusted-router/Cargo.toml",
+      "test": "test_metadata",
+      "diagnostic": "missing package metadata: documentation",
+      "result": "killed",
+      "seconds": 0.474
+    },
+    {
+      "name": "metadata-url-documentation",
+      "file": "crates/trusted-router/Cargo.toml",
+      "test": "test_metadata",
+      "diagnostic": "Regex didn't match",
+      "result": "killed",
+      "seconds": 0.55
+    },
+    {
+      "name": "metadata-rust-version",
+      "file": "crates/trusted-router/Cargo.toml",
+      "test": "test_metadata",
+      "diagnostic": "missing package metadata: rust-version",
+      "result": "killed",
+      "seconds": 0.579
+    },
+    {
+      "name": "metadata-keywords",
+      "file": "crates/trusted-router/Cargo.toml",
+      "test": "test_metadata",
+      "diagnostic": "missing package metadata: keywords",
+      "result": "killed",
+      "seconds": 0.523
+    },
+    {
+      "name": "metadata-categories",
+      "file": "crates/trusted-router/Cargo.toml",
+      "test": "test_metadata",
+      "diagnostic": "missing package metadata: categories",
+      "result": "killed",
+      "seconds": 0.543
+    }
+  ]
+}

@@ -32,6 +32,13 @@ jobs:
         run: |
           python scripts/test_mutation_check.py
           python scripts/mutation_check.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Published consumer and documentation contract
+        run: python scripts/test_consumer.py
+      - name: Consumer guard mutations
+        run: python scripts/consumer_mutation_check.py
       - name: Documentation
         run: cargo doc --workspace --all-features --no-deps
         env:

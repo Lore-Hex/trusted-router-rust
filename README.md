@@ -241,7 +241,10 @@ Receipt verification requires an explicit issuer pin and, by default, exact
 request bytes plus either response-body or captured response-stream bytes. For
 TrustedRouter production receipts, pin the public API origin:
 
-```rust,ignore
+```rust,no_run
+use trusted_router::{verify_receipt, ReceiptVerificationOptions};
+
+# async fn verify(receipt: &str, request_body: &[u8], response_body: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
 let claims = verify_receipt(
     receipt,
     "https://api.trustedrouter.com",
@@ -252,6 +255,7 @@ let claims = verify_receipt(
     },
 )
 .await?;
+# Ok(()) }
 ```
 
 Set `ReceiptVerificationOptions::require_bindings` to `false` only for an

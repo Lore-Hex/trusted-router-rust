@@ -22,7 +22,7 @@ orchestration builders, OAuth delegation, billing and broadcast helpers, and
 Google Confidential Space attestation verification.
 
 Receipt verification requires an explicit issuer pin (use
-`https://api.trustedrouter.com` for production TrustedRouter receipts) and
+`https://api.trustedrouter.com` for production `TrustedRouter` receipts) and
 requires request and response traffic bindings by default. The
 `ReceiptVerificationOptions::require_bindings = false` escape hatch is for
 intentional signature-only or partial-binding inspection.
