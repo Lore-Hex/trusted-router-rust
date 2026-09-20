@@ -161,7 +161,10 @@ impl FinalOutcome {
 /// engine has no write or pool deadlines and never produces them.
 /// `stream_stalled` is the idle deadline elapsing after the first event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[allow(dead_code)] // Closed wire vocabulary; not every class is observable in reqwest.
+#[allow(
+    dead_code,
+    reason = "Closed wire vocabulary; not every class is observable in reqwest."
+)]
 pub(crate) enum ErrorClass {
     /// Name resolution failed.
     Dns,
@@ -218,7 +221,10 @@ impl ErrorClass {
 /// Closed endpoint vocabulary (§5.2 `Endpoint`), derived from the caller's
 /// logical route by [`endpoint_enum`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[allow(dead_code)] // Closed wire vocabulary; control calls are intentionally unrecorded.
+#[allow(
+    dead_code,
+    reason = "Closed wire vocabulary; control calls are intentionally unrecorded."
+)]
 pub(crate) enum Endpoint {
     /// `/chat/completions`.
     ChatCompletions,
@@ -262,7 +268,10 @@ impl Endpoint {
 
 /// Closed timeout-phase vocabulary (§5.2 `TimeoutPhase`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[allow(dead_code)] // Closed wire vocabulary; this SDK has no whole-call deadline.
+#[allow(
+    dead_code,
+    reason = "Closed wire vocabulary; this SDK has no whole-call deadline."
+)]
 pub(crate) enum TimeoutPhase {
     /// No deadline was involved.
     None,
@@ -864,7 +873,10 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 /// dropped stream is the only way a call ends without reaching a terminal
 /// arm of the engine.
 #[derive(Debug)]
-#[allow(clippy::struct_excessive_bools)] // Independent contract facts, not one state machine.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Independent contract facts, not one state machine."
+)]
 pub(crate) struct RequestRecorder {
     sink: Arc<dyn TelemetrySink>,
     endpoint: Endpoint,
@@ -1221,7 +1233,7 @@ impl RequestRecorder {
         };
         let mut request_row = CounterRow {
             requests: 1,
-            attempts: self.attempts.len() as u64,
+            attempts: u64::try_from(self.attempts.len()).unwrap_or(u64::MAX),
             failover_used: u64::from(self.failover_used),
             first_attempt_success: u64::from(
                 self.attempts
@@ -1341,6 +1353,13 @@ impl StreamRecorder {
 // cannot fall out of a real clock; the wire-driven proofs live in
 // `transport::engine::candidate_walk_tests` and `tests/telemetry_header.rs`.
 #[cfg(test)]
+#[allow(
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 mod tests {
     use super::{
         classify_chain, classify_transport_error, duration_ms, finalize_header, host_enum,

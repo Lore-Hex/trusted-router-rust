@@ -83,10 +83,10 @@ impl Client {
         let stream = self.chat_completions_stream(request).await?;
         Ok(Box::pin(stream.filter_map(|item| async move {
             match item {
-                Ok(value) => value
-                    .pointer("/choices/0/delta/content")
-                    .and_then(Value::as_str)
-                    .map(|text| Ok(text.to_owned())),
+                Ok(value) => match text_delta(&value) {
+                    Ok(text) => text.map(Ok),
+                    Err(error) => Some(Err(error)),
+                },
                 Err(error) => Some(Err(error)),
             }
         })))
@@ -461,13 +461,61 @@ impl fmt::Display for SseWireError {
 fn parse_json_event(data: &str) -> Result<Value> {
     let value: Value = serde_json::from_str(data)
         .map_err(|error| Error::Serialization(format!("invalid SSE JSON: {error}")))?;
-    if value.get("error").is_some() {
-        let status = value
-            .pointer("/error/status")
-            .and_then(Value::as_u64)
-            .and_then(|status| u16::try_from(status).ok())
-            .unwrap_or(502);
+    if !value.is_object() {
+        return Err(Error::Serialization(
+            "SSE event must be an object".to_owned(),
+        ));
+    }
+    if value.get("type").is_some_and(|kind| !kind.is_string()) {
+        return Err(Error::Serialization("SSE type must be a string".to_owned()));
+    }
+    if let Some(error) = value.get("error") {
+        if !error.is_object() {
+            return Err(Error::Serialization(
+                "SSE error must be an object".to_owned(),
+            ));
+        }
+        let status = match error.get("status") {
+            None => 502,
+            Some(status) => status
+                .as_u64()
+                .and_then(|status| u16::try_from(status).ok())
+                .filter(|status| (100..=599).contains(status))
+                .ok_or_else(|| {
+                    Error::Serialization(
+                        "SSE error status must be an HTTP status integer".to_owned(),
+                    )
+                })?,
+        };
         return Err(crate::error::classify_api_error(status, Some(value), None));
     }
     Ok(value)
+}
+
+fn text_delta(value: &Value) -> Result<Option<String>> {
+    let Some(choices) = value.get("choices") else {
+        return Ok(None);
+    };
+    let choices = choices
+        .as_array()
+        .ok_or_else(|| Error::Serialization("choices must be an array".to_owned()))?;
+    let Some(choice) = choices.first() else {
+        return Ok(None);
+    };
+    let choice = choice
+        .as_object()
+        .ok_or_else(|| Error::Serialization("choice must be an object".to_owned()))?;
+    let Some(delta) = choice.get("delta") else {
+        return Ok(None);
+    };
+    let delta = delta
+        .as_object()
+        .ok_or_else(|| Error::Serialization("delta must be an object".to_owned()))?;
+    match delta.get("content") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(text)) => Ok(Some(text.clone())),
+        Some(_) => Err(Error::Serialization(
+            "delta content must be a string or null".to_owned(),
+        )),
+    }
 }

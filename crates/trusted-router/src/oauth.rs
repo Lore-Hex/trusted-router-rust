@@ -89,14 +89,59 @@ pub struct OAuthKeyExchangeResponse {
     #[serde(default)]
     pub user_id: Option<String>,
     /// Verified identity when present.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "optional_identity")]
     pub identity: Option<Value>,
     /// Opaque response data.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "optional_record")]
     pub data: Option<Value>,
     /// Future response fields.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
+}
+
+// Keep these guards on deserialization so generic request_json and endpoint
+// wrappers share the same boundary, without closing forward-compatible records.
+fn optional_record<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<Value>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    if value.as_ref().is_some_and(|value| !value.is_object()) {
+        return Err(serde::de::Error::custom("expected an object or null"));
+    }
+    Ok(value)
+}
+
+fn optional_identity<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<Value>, D::Error> {
+    let value = optional_record(deserializer)?;
+    if let Some(value) = &value {
+        validate_identity(value).map_err(serde::de::Error::custom)?;
+    }
+    Ok(value)
+}
+
+pub(crate) fn identity_record<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Value, D::Error> {
+    let value = Value::deserialize(deserializer)?;
+    validate_identity(&value).map_err(serde::de::Error::custom)?;
+    Ok(value)
+}
+
+fn validate_identity(value: &Value) -> std::result::Result<(), &'static str> {
+    if !value.is_object() {
+        return Err("identity must be an object");
+    }
+    for field in ["sub", "email"] {
+        if value
+            .get(field)
+            .is_some_and(|value| !value.is_null() && !value.is_string())
+        {
+            return Err("identity sub/email must be a string or null");
+        }
+    }
+    Ok(())
 }
 
 /// Creates or derives a PKCE S256 pair.
@@ -272,6 +317,10 @@ impl OAuthLoopback {
     }
 
     /// Waits for one callback, validates state, and closes the listener.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "AsyncRead returns at most the supplied buffer length"
+    )]
     pub async fn wait(self) -> Result<OAuthCallback> {
         let (mut socket, _) = self
             .listener

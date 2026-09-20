@@ -1,3 +1,12 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 //! Live production receipt verification. Run explicitly:
 //!   `TRUSTEDROUTER_API_KEY=... cargo test --test receipt_live_smoke -- --ignored`
 //!

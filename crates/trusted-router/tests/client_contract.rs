@@ -1,4 +1,16 @@
-#![allow(missing_docs)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
+#![allow(
+    missing_docs,
+    reason = "Integration test helpers are not public SDK API"
+)]
 
 use futures_util::StreamExt;
 use http::Method;
@@ -314,4 +326,112 @@ async fn zero_timeout_disables_sdk_deadline() {
         .await
         .unwrap();
     assert_eq!(value, json!({"data": []}));
+}
+
+#[tokio::test]
+async fn header_layers_preserve_values_and_suppress_workspace() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    let client = Client::builder()
+        .api_base_url(format!("{}/v1", server.uri()))
+        .header("X-Multi", "default-one")
+        .header("x-multi", "default-two")
+        .header("X-Only-Default", "one")
+        .header("x-only-default", "two")
+        .header("X-TrustedRouter-Workspace", "custom-workspace")
+        .build()
+        .unwrap();
+    let mut options = CallOptions {
+        workspace_id: Some(String::new()),
+        ..CallOptions::default()
+    };
+    options
+        .headers
+        .insert("X-Multi".to_owned(), "call-one".to_owned());
+    options
+        .headers
+        .insert("x-multi".to_owned(), "call-two".to_owned());
+    let _: Value = client
+        .request(Plane::Inference, Method::GET, "/probe", None, options)
+        .await
+        .unwrap();
+    let requests = server.received_requests().await.unwrap();
+    let headers = &requests[0].headers;
+    assert_eq!(
+        headers
+            .get_all("x-multi")
+            .iter()
+            .map(|v| v.to_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["call-one", "call-two"]
+    );
+    assert_eq!(
+        headers
+            .get_all("x-only-default")
+            .iter()
+            .map(|v| v.to_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["one", "two"]
+    );
+    assert!(!headers.contains_key("x-trustedrouter-workspace"));
+}
+
+#[tokio::test]
+async fn sse_consumed_fields_reject_wrong_shapes() {
+    for payload in [
+        json!([]),
+        json!(null),
+        json!({"type": 7}),
+        json!({"error": []}),
+        json!({"error": {"status": "429"}}),
+        json!({"error": {"status": 65536}}),
+        json!({"error": {"status": -1}}),
+        json!({"error": {"status": 99}}),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                format!("data: {payload}\n\ndata: [DONE]\n\n"),
+                "text/event-stream",
+            ))
+            .mount(&server)
+            .await;
+        let mut stream = client(&server)
+            .responses_stream(ResponsesRequest::text("test", "hello"))
+            .await
+            .unwrap();
+        let error = stream.next().await.unwrap().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Serialization, "{payload}");
+    }
+}
+
+#[tokio::test]
+async fn chat_text_rejects_malformed_consumed_fields() {
+    for payload in [
+        json!({"choices": {}}),
+        json!({"choices": [7]}),
+        json!({"choices": [{"delta": []}]}),
+        json!({"choices": [{"delta": {"content": 7}}]}),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                format!("data: {payload}\n\ndata: [DONE]\n\n"),
+                "text/event-stream",
+            ))
+            .mount(&server)
+            .await;
+        let mut stream = client(&server)
+            .chat_completions_text(ChatRequest::user("test", "hello"))
+            .await
+            .unwrap();
+        assert_eq!(
+            stream.next().await.unwrap().unwrap_err().kind(),
+            ErrorKind::Serialization,
+            "{payload}"
+        );
+    }
 }

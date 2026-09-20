@@ -1,0 +1,2 @@
+# Shared across SDKs: preserve literal producer fixture bytes on every platform.
+crates/trusted-router/tests/fixtures/auth-wire-fixtures.json -text

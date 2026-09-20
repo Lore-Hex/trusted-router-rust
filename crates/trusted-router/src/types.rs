@@ -159,6 +159,10 @@ pub struct ChatRequest {
 
 impl ChatRequest {
     /// Creates a request from typed messages.
+    #[allow(
+        clippy::expect_used,
+        reason = "ChatMessage contains only JSON Values and string-keyed maps; its derived serializer is infallible"
+    )]
     pub fn new(model: impl Into<String>, messages: Vec<ChatMessage>) -> Self {
         Self {
             model: model.into(),
@@ -678,7 +682,8 @@ pub struct AuthSessionResponse {
 /// OAuth-style user-info envelope.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserInfoResponse {
-    /// Identity claims.
+    /// Identity claims. Unknown claims are preserved; legacy null subjects are accepted.
+    #[serde(deserialize_with = "crate::oauth::identity_record")]
     pub data: Value,
     /// Response extensions.
     #[serde(flatten)]
@@ -697,6 +702,10 @@ pub struct ModelFilters {
 }
 
 /// Convenience conversion for arbitrary JSON messages.
+#[allow(
+    clippy::expect_used,
+    reason = "ChatMessage contains only JSON Values and string-keyed maps; its derived serializer is infallible"
+)]
 pub fn messages_to_values(messages: impl IntoIterator<Item = ChatMessage>) -> Vec<Value> {
     messages
         .into_iter()

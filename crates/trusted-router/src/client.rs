@@ -254,7 +254,8 @@ impl ClientBuilder {
                 root_certificate_pems: self.root_certificate_pems.clone(),
                 host_resolutions: self.host_resolutions.clone(),
             };
-            Arc::new(TelemetryReporter::new(config)) as Arc<dyn TelemetrySink>
+            let sink: Arc<dyn TelemetrySink> = Arc::new(TelemetryReporter::new(config));
+            sink
         });
         Ok(Client {
             api_key: self.api_key,

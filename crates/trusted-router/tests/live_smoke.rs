@@ -1,3 +1,12 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 //! Optional production canary. Run explicitly with a funded smoke key.
 
 use futures_util::StreamExt;

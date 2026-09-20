@@ -190,6 +190,13 @@ fn failoverable_status(status: u16, headers: &HeaderMap) -> bool {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 mod failover_tests {
     use super::{failoverable_status, parse_retry_after, retryable_status, should_retry_verdict};
     use reqwest::header::HeaderMap;
@@ -339,6 +346,13 @@ mod failover_tests {
 // Mirrors tests/test_retry_after_bounds.py, test/retry-after-bounds.test.js
 // and retry_after_bounds_test.go.
 #[cfg(test)]
+#[allow(
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_in_result,
+    clippy::as_conversions,
+    reason = "Test assertions and fixture construction deliberately fail loudly"
+)]
 mod retry_after_bound_tests {
     use super::{parse_retry_after, retry_delay, MAX_RETRY_AFTER};
     use reqwest::header::{HeaderMap, HeaderValue, RETRY_AFTER};

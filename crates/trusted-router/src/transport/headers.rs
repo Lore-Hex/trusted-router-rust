@@ -20,19 +20,24 @@ impl Client {
         telemetry: Option<&RequestRecorder>,
     ) -> Result<HeaderMap> {
         let mut headers = HeaderMap::new();
-        for (name, value) in self.headers.iter().chain(options.headers.iter()) {
-            // The reserved telemetry header is SDK-owned UNCONDITIONALLY
-            // (client telemetry contract v1 §3.2): a caller-supplied
-            // `x-tr-client` is dropped before parsing, on every plane and
-            // regardless of opt-out, so a forged value can neither ride the
-            // wire as telemetry nor fail the request by being unparseable.
-            // (trusted-router-py forwards a caller value when telemetry is
-            // off — an accident of its header plumbing, not contract, and
-            // deliberately not replicated.)
-            if name.eq_ignore_ascii_case("x-tr-client") {
-                continue;
+        for layer in [&self.headers, &options.headers] {
+            let mut parsed = HeaderMap::new();
+            for (name, value) in layer {
+                // The reserved telemetry header is SDK-owned UNCONDITIONALLY
+                // (client telemetry contract v1 §3.2): a caller-supplied
+                // `x-tr-client` is dropped before parsing, on every plane and
+                // regardless of opt-out, so a forged value can neither ride the
+                // wire as telemetry nor fail the request by being unparseable.
+                // (trusted-router-py forwards a caller value when telemetry is
+                // off — an accident of its header plumbing, not contract, and
+                // deliberately not replicated.)
+                if name.eq_ignore_ascii_case("x-tr-client") {
+                    continue;
+                }
+                parsed.append(parse_header_name(name)?, parse_header_value(value)?);
             }
-            headers.insert(parse_header_name(name)?, parse_header_value(value)?);
+            // HeaderMap::extend replaces each name while retaining all its values.
+            headers.extend(parsed);
         }
         // One bounded, content-free reliability header per attempt (§3.2).
         enforce_reserved_telemetry_header(&mut headers, telemetry);
@@ -51,6 +56,9 @@ impl Client {
             );
         }
         let workspace = options.workspace_id.as_ref().or(self.workspace_id.as_ref());
+        if options.workspace_id.is_some() || self.workspace_id.is_some() {
+            headers.remove("x-trustedrouter-workspace");
+        }
         if let Some(workspace) = workspace.filter(|value| !value.is_empty()) {
             headers.insert(
                 HeaderName::from_static("x-trustedrouter-workspace"),
