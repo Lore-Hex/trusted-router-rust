@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.4.0 — 2026-09-20
+
+Offline receipt verification, fail-closed defaults, and a boundary audit that
+turns every remaining panic on external data into a typed error. The C ABI
+(`trusted_router.h`) is unchanged.
+
+### Added
+
+- Offline signed inference receipt verification: `verify_receipt` accepts a
+  compact or flattened JWS and fails closed with typed errors — structure
+  (duplicate JSON members rejected at every depth via a custom serde
+  deserializer), header, Ed25519 signature (`ed25519-dalek`), `rv`/`iat`,
+  nonce, tee-verified claims, and both captured-stream hash domains.
+  `ReceiptCapture` preserves exact wire bytes from a streaming response. GCP
+  attestation chains verify through the existing verifier with the
+  receipt-key commitment checked by set membership; other kinds fail closed
+  with a typed unsupported error. The enclave-generated parity fixtures are
+  byte-identical across all six SDKs and hard-fail when missing.
+- Receipt-key attestation binding mode: compact receipts verify fully when
+  the caller supplies the attestation document pinned by `att_sha256` (the
+  `attestation` option); the live-gateway path is unchanged. Ignored live
+  smoke tests run against production when `TRUSTEDROUTER_SMOKE_API_KEY` is
+  set.
+- The crate documentation now includes the README, so every README example
+  is a doctest; `documentation` metadata points at docs.rs.
+
+### Changed
+
+- **Receipt verification fails closed by default**: request and response
+  bindings are required unless explicitly disabled, the issuer must be pinned
+  to a canonical HTTPS origin, and the receipt's `iss` is never followed.
+- Attestation claims are required and typed instead of defaulting: a
+  missing or non-integer `exp`, non-string `iss`, malformed image pin, or
+  non-string nonce is `Error::Attestation`, never `0`, `""`, or an empty
+  list. Image pins must be non-empty to count as a pin.
+- OAuth exchange and userinfo records validate only the fields the SDK
+  consumes (`identity` object-or-null with string-or-null `sub`/`email`;
+  `data` object-or-null) and pass every unknown field through; the legacy
+  userinfo `{"sub": null, "workspace_id": ...}` is accepted.
+- SSE events, choices, deltas, and error bodies are shape-checked before use
+  and report `Error::Serialization` when malformed.
+- Layered header merges keep repeated values and let the later layer replace
+  by name; the SDK-owned workspace header is removed when a workspace id is
+  configured.
+- The published crate contains only `src/`, `LICENSE`, and `README.md`
+  (`include` allowlist, 26 files).
+
+### Internal
+
+- Clippy denies `unwrap_used`, `expect_used`, `panic`, `unreachable`, `todo`,
+  `unimplemented`, `indexing_slicing`, and `unwrap_in_result` in library
+  code, with every remaining suppression naming its invariant; a shared
+  cross-SDK auth wire fixture; a fails-without-fix mutation gate; a
+  packaged-crate consumer smoke, all in CI.
+
 ## 0.3.0 — 2026-08-25
 
 The client-events beacon channel and User-Agent runtime parity. This is the
