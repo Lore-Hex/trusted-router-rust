@@ -417,7 +417,11 @@ async fn a_single_string_eat_nonce_is_accepted() {
     let result = verify_gateway_attestation_document(&sign(&claims), document_options(&nonce))
         .await
         .unwrap();
-    assert!(result.cert_sha256_candidates.is_empty());
+    assert!(
+        result.cert_sha256_candidates.is_empty(),
+        "{:?}",
+        result.cert_sha256_candidates
+    );
 }
 
 // ---- binding levels of the default verifier -------------------------------------

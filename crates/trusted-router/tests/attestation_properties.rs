@@ -160,7 +160,11 @@ fn a_release_with_only_one_identity_kind_is_accepted() {
         policy.expected_image_digests,
         vec!["sha256:beef".to_owned()]
     );
-    assert!(policy.expected_image_references.is_empty());
+    assert!(
+        policy.expected_image_references.is_empty(),
+        "{:?}",
+        policy.expected_image_references
+    );
 }
 
 #[test]

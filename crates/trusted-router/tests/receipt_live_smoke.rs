@@ -72,7 +72,7 @@ async fn streaming_receipt_verifies_with_full_attestation_chain() {
     )
     .await
     .expect("live streaming receipt must verify with the full chain");
-    assert!(!claims.model.selected.is_empty());
+    assert_ne!(claims.model.selected, "");
 }
 
 #[tokio::test]

@@ -1558,8 +1558,9 @@ mod tests {
         assert_eq!(recorder.header_value().as_deref(), Some("v=1;a=0;s=0"));
         recorder.on_response(200, &empty_headers(), None);
         recorder.finish(false);
-        assert!(sink.events().is_empty());
-        assert!(sink.counters().is_empty());
+        let (events, counters) = (sink.events(), sink.counters());
+        assert!(events.is_empty(), "{events:?}");
+        assert!(counters.is_empty(), "{counters:?}");
     }
 
     #[test]
@@ -1698,7 +1699,7 @@ mod tests {
     fn assert_header_grammar(header: &str) {
         for part in header.split(';') {
             let (key, value) = part.split_once('=').expect("key=value");
-            assert!(!key.is_empty());
+            assert_ne!(key, "");
             assert!(
                 !value.is_empty()
                     && value.len() <= 24
