@@ -1476,7 +1476,8 @@ mod tests {
         assert!(reporter.retained_window_bytes() > 0);
         clock.advance(86_401);
         reporter.prune_now();
-        assert!(reporter.closed_windows().is_empty());
+        let windows = reporter.closed_windows();
+        assert!(windows.is_empty(), "{windows:?}");
         assert_eq!(reporter.retained_window_bytes(), 0);
         assert_eq!(reporter.dropped_since_last(), 1);
     }
@@ -1522,7 +1523,8 @@ mod tests {
         let requests = server.received_requests().await.expect("request log");
         let body: Value = serde_json::from_slice(&requests[1].body).expect("batch JSON");
         assert_eq!(body["counters"][0]["window_start_age_ms"], 120_000);
-        assert!(reporter.closed_windows().is_empty());
+        let windows = reporter.closed_windows();
+        assert!(windows.is_empty(), "{windows:?}");
         disable(&reporter);
     }
 
@@ -1587,7 +1589,8 @@ mod tests {
         );
         assert!(!dropped.flush_once(None).await);
         assert_eq!(dropped.buffered_events(), 0);
-        assert!(dropped.closed_windows().is_empty());
+        let windows = dropped.closed_windows();
+        assert!(windows.is_empty(), "{windows:?}");
         assert_eq!(dropped.dropped_since_last(), 2);
         disable(&dropped);
     }

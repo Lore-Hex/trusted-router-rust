@@ -62,12 +62,8 @@ async fn routes_inference_and_control_to_separate_planes() {
         .await
         .unwrap();
     assert_eq!(chat.choices[0].message.text_content(), Some("PONG"));
-    assert!(client
-        .models(ModelFilters::default())
-        .await
-        .unwrap()
-        .data
-        .is_empty());
+    let models = client.models(ModelFilters::default()).await.unwrap().data;
+    assert!(models.is_empty(), "{models:?}");
 }
 
 #[tokio::test]
@@ -134,7 +130,8 @@ async fn rejects_absolute_and_scheme_relative_request_paths() {
             .unwrap_err();
         assert_eq!(error.kind(), ErrorKind::InvalidConfiguration);
     }
-    assert!(server.received_requests().await.unwrap().is_empty());
+    let requests = server.received_requests().await.unwrap();
+    assert!(requests.is_empty(), "{requests:?}");
 }
 
 #[tokio::test]
@@ -181,7 +178,8 @@ async fn retries_retryable_status_then_succeeds() {
         .max_retries(1)
         .build()
         .unwrap();
-    assert!(client.providers().await.unwrap().data.is_empty());
+    let providers = client.providers().await.unwrap().data;
+    assert!(providers.is_empty(), "{providers:?}");
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 

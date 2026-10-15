@@ -222,18 +222,73 @@ link the same ABI directly.
 
 ## Attestation
 
-`verify_gateway_attestation` verifies:
+Every gateway attestation check verifies the token itself:
 
 - Google RS256 signature, issuer, audience, and expiration
 - production `dbgstat=disabled-since-boot`
 - Confidential Space, Secure Boot, and supported SEV or TDX hardware
 - image digest and image reference pins
-- fresh nonce and optional RFC 9266 TLS exporter binding
-- TLS leaf certificate SHA-256 binding
+- a fresh nonce in the token's nonce set
 
-The certificate and exporter must come from the same TLS connection that fetched
-the attestation. Supplying values from a separate connection weakens the binding
-and is intentionally not presented as equivalent.
+What a pass also proves about *your connection* depends on what you can check,
+and every result reports it as an `AttestationBinding`:
+
+| Binding | Verifier | What a pass adds |
+| --- | --- | --- |
+| `TlsExporter` | `verify_gateway_attestation` with `tls_exporter` | The token was minted inside your own TLS session (RFC 9266). |
+| `TlsCert` | `verify_gateway_attestation` with `tls_certificate_der` | The token commits to the certificate your connection presented. |
+| `None` | `verify_gateway_attestation_document` | Nothing about your connection. With your fresh nonce, a pinned build answered just now. |
+
+Reqwest does not expose the TLS connection, so with `Client` you verify the
+document:
+
+```rust,no_run
+use trusted_router::{
+    policy_from_trust_release, verify_gateway_attestation_document, AttestationBinding, Client,
+    DocumentVerificationOptions,
+};
+
+# fn fresh_nonce_hex() -> String { "00".repeat(32) }
+# async fn run() -> Result<(), Box<dyn std::error::Error>> {
+let client = Client::new("sk-tr-example")?;
+let policy = policy_from_trust_release(&client.trust_release(None).await?, None)?;
+let nonce_hex = fresh_nonce_hex(); // 32 random bytes as hex, from your CSPRNG
+let document = client.attestation(Some(&nonce_hex)).await?; // GET /attestation?nonce=...
+let verified = verify_gateway_attestation_document(
+    &document,
+    DocumentVerificationOptions {
+        policy,
+        nonce_hex,
+        jwks: None,
+        jwks_url: None,
+        http_client: None,
+    },
+)
+.await?;
+assert_eq!(verified.binding(), AttestationBinding::None);
+println!("{}", verified.image_digest); // a digest the trust release pins
+# Ok(()) }
+```
+
+`verify_gateway_attestation_document` requires a fresh nonce of 16 to 64
+random bytes (as hex) and requires it in the token's `eat_nonce`, so a stored
+token cannot be replayed at you. Its result has no `cert_sha256`, because the
+token names no certificate as your connection's. `cert_sha256_candidates` lists
+the SHA-256-shaped values the token commits to besides your nonce; the
+gateway's leaf certificate hash is one of them. If you hold the DER certificate
+of your connection, pass it to `verify_gateway_attestation` as
+`tls_certificate_der` instead, which checks it and reports `TlsCert`.
+
+`verify_gateway_attestation` keeps its behaviour: it requires a certificate
+binding. Live tokens carry the certificate hash only as an `eat_nonce` entry,
+so it fails without `tls_certificate_der`, naming the document verifier in the
+error. The certificate and exporter must come from the same TLS connection that
+fetched the attestation. Supplying values from a separate connection weakens
+the binding and is intentionally not presented as equivalent.
+
+A document check shows that the gateway is serving a published build right now.
+It does not show that your other requests reach that gateway, and it says
+nothing about the model providers the gateway routes to.
 
 ### Receipt attestation documents
 

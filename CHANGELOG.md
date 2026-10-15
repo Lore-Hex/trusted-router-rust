@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.5.0 — 2026-10-15
+
+Document-only gateway attestation, and an explicit binding level on every
+attestation result. The C ABI (`trusted_router.h`) is unchanged.
+
+### Added
+
+- `verify_gateway_attestation_document(document, DocumentVerificationOptions)`
+  verifies a gateway attestation without TLS evidence. This is for callers
+  that cannot see their TLS connection, which includes every user of the
+  reqwest-based `Client`. It runs every token check that
+  `verify_gateway_attestation` runs: Google signature, issuer, audience,
+  expiry, production Confidential Space claims, and image pins. It also
+  requires a fresh 16–64-byte caller nonce in `eat_nonce`. It claims no TLS
+  binding. Its `GatewayAttestationDocument` result reports
+  `binding() == AttestationBinding::None`, has no `cert_sha256`, and lists
+  `cert_sha256_candidates` for callers who later hold the certificate. Live
+  gateway tokens carry the certificate hash only as an `eat_nonce` entry.
+  Before this release nothing could pass without the certificate, and the
+  crate-private receipt-key verifier was the only document-mode check.
+- `AttestationBinding` (`None`, `TlsCert`, `TlsExporter`; serialized as
+  `"none"`, `"tls-cert"`, `"tls-exporter"`) reports which connection
+  evidence was actually compared.
+
+### Changed
+
+- **Breaking:** `GatewayAttestation` has a new public field, `binding`.
+  Struct literals must set it; deserializing an older value without it gives
+  `None`. `tls_exporter` reports `TlsExporter`, and `tls_certificate_der`
+  reports `TlsCert`. A certificate hash that the token only claims, or that
+  only matches a policy pin, reports `None`.
+- `verify_gateway_attestation` behaves as before. When it cannot find a
+  certificate commitment without `tls_certificate_der`, the error now names
+  the document-only verifier.
+
+### Internal
+
+- A claims fixture captured from the live gateway (container env stripped)
+  and three document-mode mutations in the mutation gate.
+
 ## 0.4.0 — 2026-09-20
 
 Offline receipt verification, fail-closed defaults, and a boundary audit that

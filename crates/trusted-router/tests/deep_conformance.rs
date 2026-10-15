@@ -59,7 +59,8 @@ async fn owned_client_does_not_follow_redirects() {
         .await
         .unwrap_err();
     assert_eq!(error.status_code(), Some(307));
-    assert!(target.received_requests().await.unwrap().is_empty());
+    let requests = target.received_requests().await.unwrap();
+    assert!(requests.is_empty(), "{requests:?}");
 }
 
 #[tokio::test]

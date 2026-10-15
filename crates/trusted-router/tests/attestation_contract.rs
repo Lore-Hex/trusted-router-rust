@@ -153,7 +153,8 @@ async fn owned_jwks_client_rejects_redirects_while_supplied_policy_is_caller_own
         .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::Attestation);
     assert!(error.to_string().contains("HTTP 307"));
-    assert!(target.received_requests().await.unwrap().is_empty());
+    let redirected = target.received_requests().await.unwrap();
+    assert!(redirected.is_empty(), "{redirected:?}");
     let owned_requests = source.received_requests().await.unwrap();
     assert_eq!(owned_requests.len(), 1);
     let owned_user_agent = owned_requests[0]
