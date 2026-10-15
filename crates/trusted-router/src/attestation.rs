@@ -731,7 +731,7 @@ fn verify_claims(
 /// its own, lower, limit).
 fn is_fresh_nonce_hex(nonce: &str) -> bool {
     (32..=128).contains(&nonce.len())
-        && nonce.len() % 2 == 0
+        && nonce.len().is_multiple_of(2)
         && nonce.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
