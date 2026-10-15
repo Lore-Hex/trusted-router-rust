@@ -697,12 +697,20 @@ impl Client {
     }
 
     /// Fetches live attestation evidence from the inference plane.
+    ///
+    /// `/attestation` is served at the API root, beside the `/v1` base path
+    /// rather than under it (`https://api.trustedrouter.com/attestation`).
     pub async fn attestation(&self, nonce_hex: Option<&str>) -> Result<Vec<u8>> {
+        // Inference paths join onto the base URL, so step out of a trailing
+        // `/v1`; a base URL without one is already the API root.
+        let root = if self.api_base_url.path().ends_with("/v1/") {
+            "/../attestation"
+        } else {
+            "/attestation"
+        };
         let path = match nonce_hex {
-            Some(nonce) if !nonce.is_empty() => {
-                query_path("/attestation", &[("nonce", nonce.to_owned())])?
-            }
-            _ => "/attestation".to_owned(),
+            Some(nonce) if !nonce.is_empty() => query_path(root, &[("nonce", nonce.to_owned())])?,
+            _ => root.to_owned(),
         };
         self.credential_free_plane_bytes(
             Plane::Inference,

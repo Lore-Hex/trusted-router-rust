@@ -433,3 +433,49 @@ async fn chat_text_rejects_malformed_consumed_fields() {
         );
     }
 }
+
+#[tokio::test]
+async fn attestation_is_fetched_from_the_api_root_without_credentials() {
+    // The gateway serves /attestation beside the /v1 base path, not under it;
+    // /v1/attestation is an authenticated router path that answers 401.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/inference/attestation"))
+        .and(query_param("nonce", "ab".repeat(32)))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"challenged".to_vec()))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/inference/attestation"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"evidence".to_vec()))
+        .mount(&server)
+        .await;
+    let client = client(&server);
+    let nonce = "ab".repeat(32);
+    assert_eq!(
+        client.attestation(Some(&nonce)).await.unwrap(),
+        b"challenged"
+    );
+    assert_eq!(client.attestation(None).await.unwrap(), b"evidence");
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 2);
+    for request in &requests {
+        assert_eq!(request.url.path(), "/inference/attestation");
+        assert!(request.headers.get("authorization").is_none());
+    }
+
+    // A base URL without /v1 is already the API root.
+    let root = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/gateway/attestation"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"evidence".to_vec()))
+        .mount(&root)
+        .await;
+    let unversioned = Client::builder()
+        .api_key("sk-test")
+        .api_base_url(format!("{}/gateway", root.uri()))
+        .max_retries(0)
+        .build()
+        .unwrap();
+    assert_eq!(unversioned.attestation(None).await.unwrap(), b"evidence");
+}

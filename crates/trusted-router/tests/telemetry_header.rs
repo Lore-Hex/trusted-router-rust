@@ -190,7 +190,7 @@ async fn the_attestation_fetch_is_never_traced() {
     // DNS/default-header configuration.
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/v1/attestation"))
+        .and(path("/attestation"))
         .respond_with(ResponseTemplate::new(200).set_body_bytes(b"evidence".to_vec()))
         .mount(&server)
         .await;
