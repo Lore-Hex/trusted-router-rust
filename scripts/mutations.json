@@ -173,5 +173,26 @@
     "before": "!value.is_empty() && safe_eq(actual, value)",
     "after": "safe_eq(actual, value)",
     "test": "attestation::tests::empty_image_pin_cannot_match_a_missing_claim"
+  },
+  {
+    "name": "attestation-document-nonce-floor",
+    "file": "crates/trusted-router/src/attestation.rs",
+    "before": "    if !is_fresh_nonce_hex(&options.nonce_hex) {",
+    "after": "    if options.nonce_hex.is_empty() {",
+    "test": "a_missing_or_weak_nonce_is_refused_before_any_fetch"
+  },
+  {
+    "name": "attestation-document-nonce-in-eat-nonce-only",
+    "file": "crates/trusted-router/src/attestation.rs",
+    "before": "            AttestationBindingMode::Document => string_list(eat_nonces.unwrap_or(&Value::Null))?\n",
+    "after": "            AttestationBindingMode::Document => nonces\n",
+    "test": "the_nonce_must_be_in_eat_nonce_not_only_the_legacy_claim"
+  },
+  {
+    "name": "attestation-claimed-cert-is-not-a-binding",
+    "file": "crates/trusted-router/src/attestation.rs",
+    "before": "    } else if actual_cert.is_some() {\n        AttestationBinding::TlsCert\n    } else {\n        AttestationBinding::None\n    };",
+    "after": "    } else {\n        AttestationBinding::TlsCert\n    };",
+    "test": "a_claimed_certificate_with_no_connection_evidence_reports_none"
   }
 ]

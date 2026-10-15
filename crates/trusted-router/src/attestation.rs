@@ -1,4 +1,15 @@
 //! Google Confidential Space attestation verification.
+//!
+//! A verified gateway token proves that a workload running the build the
+//! trust release pins minted it. What it also proves about the caller's own
+//! connection depends on what the caller can check, and every result reports
+//! that as an [`AttestationBinding`]:
+//!
+//! - [`verify_gateway_attestation`] with `tls_exporter` binds the TLS session;
+//! - [`verify_gateway_attestation`] with `tls_certificate_der` binds the leaf
+//!   certificate;
+//! - [`verify_gateway_attestation_document`] binds nothing, for callers that
+//!   cannot see the TLS connection (reqwest does not expose it).
 
 use crate::{telemetry::wire::sdk_user_agent, Error, Result};
 use constant_time_eq::constant_time_eq;
@@ -16,6 +27,31 @@ pub const GCP_JWKS_URL: &str = "https://www.googleapis.com/service_accounts/v1/m
 pub const EXPORTER_LABEL: &str = "EXPORTER-Channel-Binding";
 /// Required TLS exporter length.
 pub const EXPORTER_LENGTH: usize = 32;
+
+/// What a verified attestation proves about the connection the caller's
+/// requests travel over, weakest first.
+///
+/// Every check on the token itself (Google's signature, issuer, audience,
+/// expiry, production Confidential Space claims, image pins) passes before any
+/// of these is reported.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AttestationBinding {
+    /// Nothing ties the token to your connection. With a fresh nonce it shows
+    /// a workload running a pinned build answered your challenge just now; it
+    /// does not show that your requests reach that workload. Anything that can
+    /// reach the gateway (a proxy, a relay, a TLS-terminating middlebox) can
+    /// obtain such a token for your nonce and still serve your traffic itself.
+    #[default]
+    None,
+    /// You supplied the DER leaf certificate of your own TLS connection, and
+    /// the token commits to its SHA-256. A relay that terminates TLS presents a
+    /// different certificate unless it holds the gateway's key.
+    TlsCert,
+    /// The token commits to the RFC 9266 exporter of your own TLS session, so
+    /// it was minted inside that session.
+    TlsExporter,
+}
 
 /// Pinned workload values that a gateway attestation must match.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,6 +260,11 @@ pub struct AttestationVerificationOptions {
 /// Verified gateway attestation result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayAttestation {
+    /// Which connection evidence was compared. With
+    /// [`AttestationBinding::None`], `cert_sha256` is only what the token
+    /// claims; nothing compared it with a connection.
+    #[serde(default)]
+    pub binding: AttestationBinding,
     /// TLS certificate SHA-256 committed by the JWT.
     pub cert_sha256: String,
     /// Attested container digest.
@@ -242,19 +283,140 @@ pub struct GatewayAttestation {
     pub raw_claims: Value,
 }
 
+/// Inputs for [`verify_gateway_attestation_document`].
+#[derive(Debug, Clone)]
+pub struct DocumentVerificationOptions {
+    /// Policy to enforce; it must pin an image.
+    pub policy: AttestationPolicy,
+    /// 16 to 64 fresh random bytes as hex, sent as `/attestation?nonce=`.
+    pub nonce_hex: String,
+    /// Pre-fetched Google JWKS for deterministic/offline verification.
+    pub jwks: Option<Value>,
+    /// Optional JWKS endpoint override.
+    pub jwks_url: Option<String>,
+    /// Optional HTTP client for JWKS retrieval, with the same trust boundary as
+    /// [`AttestationVerificationOptions::http_client`].
+    pub http_client: Option<reqwest::Client>,
+}
+
+/// Result of [`verify_gateway_attestation_document`].
+///
+/// It has no `cert_sha256`: the document names no certificate as the
+/// connection's, so code written against [`GatewayAttestation`] that reads one
+/// fails to compile rather than trusting it. [`Self::binding`] is always
+/// [`AttestationBinding::None`].
+#[derive(Debug, Clone, Serialize)]
+pub struct GatewayAttestationDocument {
+    binding: AttestationBinding,
+    /// SHA-256-shaped values the token commits to other than your nonce:
+    /// labelled certificate claims when present, then `eat_nonce` entries,
+    /// lowercased and deduplicated. The gateway's TLS leaf certificate hash is
+    /// among them, alongside other per-instance or per-connection commitments,
+    /// so test membership rather than picking an entry. A match is a comparison
+    /// you make, not a binding this SDK checked; when you hold the certificate,
+    /// pass it to [`verify_gateway_attestation`] as `tls_certificate_der`.
+    pub cert_sha256_candidates: Vec<String>,
+    /// Attested container digest.
+    pub image_digest: String,
+    /// Attested container reference.
+    pub image_reference: String,
+    /// The fresh nonce you supplied, found in the token's `eat_nonce`.
+    pub nonce: String,
+    /// JWT expiration.
+    pub expires_at: i64,
+    /// JWT issuer.
+    pub issuer: String,
+    /// Required audience that matched.
+    pub audience: String,
+    /// Fully verified claims.
+    pub raw_claims: Value,
+}
+
+impl GatewayAttestationDocument {
+    /// Always [`AttestationBinding::None`]: document verification checks no
+    /// TLS evidence.
+    #[must_use]
+    pub const fn binding(&self) -> AttestationBinding {
+        self.binding
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AttestationBindingMode {
     LiveChannel,
-    ReceiptKey,
+    // Checks the token alone: no TLS evidence, and the nonce (or receipt-key
+    // commitment) must be in `eat_nonce` itself.
+    Document,
 }
 
 /// Verifies a Google-signed Confidential Space JWT and every `TrustedRouter` pin.
+///
+/// The token must commit to a TLS certificate hash. Live gateway tokens carry
+/// it only as an `eat_nonce` entry, which is found by hashing
+/// `tls_certificate_der`, so without the certificate this fails. A caller that
+/// cannot see its TLS connection uses [`verify_gateway_attestation_document`]
+/// instead and gets [`AttestationBinding::None`] rather than a certificate
+/// binding it never checked. The result's `binding` reports which connection
+/// evidence was checked.
 pub async fn verify_gateway_attestation(
     document: &[u8],
     options: AttestationVerificationOptions,
 ) -> Result<GatewayAttestation> {
     let claims = verified_jwt_claims(document, &options).await?;
     verify_claims(claims, &options, AttestationBindingMode::LiveChannel)
+}
+
+/// Verifies a gateway attestation document on its own, with no TLS binding.
+///
+/// For callers that cannot see the TLS connection their requests use, which
+/// includes every caller of this crate's reqwest-based [`crate::Client`]. It
+/// runs every check [`verify_gateway_attestation`] runs on the token (Google's
+/// signature, issuer, audience, expiry, production Confidential Space claims,
+/// and the policy's image pins) and requires `nonce_hex` in `eat_nonce`, so the
+/// token was minted for this challenge rather than replayed.
+///
+/// It checks no TLS certificate or exporter, and the result says so with
+/// [`AttestationBinding::None`]. A verified document shows that a workload
+/// running a pinned build answered your challenge; it does not show that your
+/// other requests reach that workload. Because nothing here trusts the
+/// transport, the document may be fetched through a relay without weakening the
+/// result; the JWKS and the policy must not come from that relay.
+///
+/// A missing, short, or non-hex nonce is refused before any network or crypto
+/// work.
+pub async fn verify_gateway_attestation_document(
+    document: &[u8],
+    options: DocumentVerificationOptions,
+) -> Result<GatewayAttestationDocument> {
+    if !is_fresh_nonce_hex(&options.nonce_hex) {
+        return Err(Error::Attestation(
+            "document verification requires a fresh nonce of 16 to 64 random bytes as hex"
+                .to_owned(),
+        ));
+    }
+    let options = AttestationVerificationOptions {
+        policy: options.policy,
+        nonce_hex: Some(options.nonce_hex),
+        tls_certificate_der: None,
+        tls_exporter: None,
+        jwks: options.jwks,
+        jwks_url: options.jwks_url,
+        http_client: options.http_client,
+    };
+    let claims = verified_jwt_claims(document, &options).await?;
+    let verified = verify_claims(claims, &options, AttestationBindingMode::Document)?;
+    let nonce = verified.nonce.unwrap_or_default();
+    Ok(GatewayAttestationDocument {
+        binding: AttestationBinding::None,
+        cert_sha256_candidates: cert_sha256_candidates(&verified.raw_claims, &nonce),
+        image_digest: verified.image_digest,
+        image_reference: verified.image_reference,
+        nonce,
+        expires_at: verified.expires_at,
+        issuer: verified.issuer,
+        audience: verified.audience,
+        raw_claims: verified.raw_claims,
+    })
 }
 
 /// Verifies a Google-signed receipt-key attestation without live-channel binding.
@@ -268,7 +430,7 @@ pub(crate) async fn verify_receipt_key_attestation(
         ));
     }
     let claims = verified_jwt_claims(document, &options).await?;
-    verify_claims(claims, &options, AttestationBindingMode::ReceiptKey)?;
+    verify_claims(claims, &options, AttestationBindingMode::Document)?;
     Ok(())
 }
 
@@ -447,7 +609,9 @@ fn verify_claims(
     if let Some(nonce) = options.nonce_hex.as_ref() {
         let nonce_present = match binding_mode {
             AttestationBindingMode::LiveChannel => nonces.iter().any(|value| safe_eq(value, nonce)),
-            AttestationBindingMode::ReceiptKey => string_list(eat_nonces.unwrap_or(&Value::Null))?
+            // Receipt-key commitments and document challenges must appear in
+            // eat_nonce itself, never only in the legacy `nonces` fallback.
+            AttestationBindingMode::Document => string_list(eat_nonces.unwrap_or(&Value::Null))?
                 .iter()
                 .any(|value| safe_eq(&value.to_ascii_lowercase(), &nonce.to_ascii_lowercase())),
         };
@@ -455,10 +619,12 @@ fn verify_claims(
             return Err(Error::Attestation("nonce is not bound in JWT".to_owned()));
         }
     }
-    if binding_mode == AttestationBindingMode::ReceiptKey {
-        // Receipt attestations certify a durable signing key, not the
-        // verifier's current TLS connection.
+    if binding_mode == AttestationBindingMode::Document {
+        // A receipt attestation certifies a durable signing key, and a
+        // document check has no connection to compare. Neither is evidence
+        // about the verifier's current TLS connection.
         return Ok(GatewayAttestation {
+            binding: AttestationBinding::None,
             cert_sha256: String::new(),
             image_digest,
             image_reference,
@@ -511,7 +677,16 @@ fn verify_claims(
                     .then(|| actual.clone())
             })
         })
-        .ok_or_else(|| Error::Attestation("JWT does not bind a TLS certificate".to_owned()))?;
+        .ok_or_else(|| {
+            Error::Attestation(if options.tls_certificate_der.is_some() {
+                "JWT does not bind a TLS certificate".to_owned()
+            } else {
+                "JWT does not bind a TLS certificate; pass tls_certificate_der from this \
+                 connection, or use verify_gateway_attestation_document for document-only \
+                 verification"
+                    .to_owned()
+            })
+        })?;
     if cert_sha256.len() != 64 || !cert_sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(Error::Attestation(
             "invalid TLS certificate commitment".to_owned(),
@@ -529,7 +704,17 @@ fn verify_claims(
         &cert_sha256,
         policy.expected_cert_sha256.as_deref(),
     )?;
+    // A policy pin compares the token with a published hash, not with this
+    // connection, so it does not raise the binding on its own.
+    let binding = if options.tls_exporter.is_some() {
+        AttestationBinding::TlsExporter
+    } else if actual_cert.is_some() {
+        AttestationBinding::TlsCert
+    } else {
+        AttestationBinding::None
+    };
     Ok(GatewayAttestation {
+        binding,
         cert_sha256,
         image_digest,
         image_reference,
@@ -539,6 +724,42 @@ fn verify_claims(
         audience: policy.audience.clone(),
         raw_claims: claims,
     })
+}
+
+/// 16 to 64 bytes as hex. 16 bytes is the least a caller-chosen challenge
+/// should carry; the upper bound only keeps input sane (the gateway enforces
+/// its own, lower, limit).
+fn is_fresh_nonce_hex(nonce: &str) -> bool {
+    (32..=128).contains(&nonce.len())
+        && nonce.len() % 2 == 0
+        && nonce.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn cert_sha256_candidates(claims: &Value, nonce_hex: &str) -> Vec<String> {
+    let nonce = nonce_hex.to_ascii_lowercase();
+    let labelled = ["tls_cert_sha256", "workload_tls_cert_sha256"]
+        .into_iter()
+        .filter_map(|name| claims.get(name));
+    let eat_nonce = match claims.get("eat_nonce") {
+        Some(Value::Array(values)) => values.iter().collect(),
+        Some(value) => vec![value],
+        None => Vec::new(),
+    };
+    let mut candidates: Vec<String> = Vec::new();
+    for value in labelled.chain(eat_nonce) {
+        let Some(text) = value.as_str().filter(|text| is_sha256_hex(text)) else {
+            continue;
+        };
+        let hex = text.to_ascii_lowercase();
+        if hex != nonce && !candidates.contains(&hex) {
+            candidates.push(hex);
+        }
+    }
+    candidates
 }
 
 fn optional_claim_string(claims: &Value, pointer: &str) -> Result<String> {
@@ -662,7 +883,7 @@ mod tests {
         let options = receipt_options(KEY_COMMITMENT);
 
         let verified =
-            verify_claims(claims.clone(), &options, AttestationBindingMode::ReceiptKey).unwrap();
+            verify_claims(claims.clone(), &options, AttestationBindingMode::Document).unwrap();
         assert_eq!(verified.cert_sha256, "");
         assert_eq!(verified.nonce.as_deref(), Some(KEY_COMMITMENT));
 
@@ -677,7 +898,7 @@ mod tests {
             verify_claims(
                 key_binding_claims(position),
                 &receipt_options(KEY_COMMITMENT),
-                AttestationBindingMode::ReceiptKey,
+                AttestationBindingMode::Document,
             )
             .unwrap();
         }
@@ -690,7 +911,7 @@ mod tests {
         let error = verify_claims(
             claims,
             &receipt_options(&"f".repeat(64)),
-            AttestationBindingMode::ReceiptKey,
+            AttestationBindingMode::Document,
         )
         .unwrap_err();
         assert!(error.to_string().contains("nonce is not bound"));
@@ -721,7 +942,7 @@ mod tests {
             }
             assert!(
                 matches!(
-                    verify_claims(claims, &options, AttestationBindingMode::ReceiptKey),
+                    verify_claims(claims, &options, AttestationBindingMode::Document),
                     Err(Error::Attestation(_))
                 ),
                 "{pointer}"
@@ -741,7 +962,7 @@ mod tests {
         options.policy.expected_image_digests = vec!["sha256:trusted".to_owned(), String::new()];
         options.policy.expected_image_reference = None;
         assert!(matches!(
-            verify_claims(claims, &options, AttestationBindingMode::ReceiptKey),
+            verify_claims(claims, &options, AttestationBindingMode::Document),
             Err(Error::Attestation(_))
         ));
     }

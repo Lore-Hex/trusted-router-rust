@@ -21,9 +21,11 @@ mod transport;
 mod types;
 
 pub use attestation::{
-    policy_from_trust_release, verify_gateway_attestation, AttestationPolicy,
-    AttestationVerificationOptions, GatewayAttestation, TrustRelease, TrustReleaseDataPolicy,
-    TrustReleaseTls, EXPORTER_LABEL, EXPORTER_LENGTH, GCP_ISSUER, GCP_JWKS_URL,
+    policy_from_trust_release, verify_gateway_attestation, verify_gateway_attestation_document,
+    AttestationBinding, AttestationPolicy, AttestationVerificationOptions,
+    DocumentVerificationOptions, GatewayAttestation, GatewayAttestationDocument, TrustRelease,
+    TrustReleaseDataPolicy, TrustReleaseTls, EXPORTER_LABEL, EXPORTER_LENGTH, GCP_ISSUER,
+    GCP_JWKS_URL,
 };
 #[cfg(feature = "blocking")]
 pub use blocking::BlockingClient;

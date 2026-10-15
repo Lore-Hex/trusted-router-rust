@@ -36,6 +36,26 @@ The service runs inside hardware-attested confidential computing environments;
 published measurements and how to verify them are at
 https://trustedrouter.com/trust
 
+## Attestation guarantees
+
+Every gateway attestation this SDK verifies reports an `AttestationBinding`,
+and the claim is exactly that strong:
+
+| Binding | Checked beyond the token itself |
+| --- | --- |
+| `TlsExporter` | The token commits to the RFC 9266 exporter of the caller's own TLS session. |
+| `TlsCert` | The token commits to the SHA-256 of the DER certificate the caller supplied from its connection. |
+| `None` | Nothing about the connection. `verify_gateway_attestation_document` requires a fresh caller nonce in `eat_nonce`. |
+
+The token checks under every binding are Google's signature, issuer,
+audience, expiry, the production Confidential Space claims, and the image
+pins from the published trust release.
+
+In scope: a verifier that returns `Ok` when any of those checks should fail,
+or that reports a stronger binding than it checked. Out of scope: the
+documented limit of `None` — anything that can reach the gateway can obtain a
+valid document for your nonce and still handle your traffic itself.
+
 ## Safe harbour
 
 We will not pursue or support legal action against anyone who reports a

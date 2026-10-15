@@ -22,7 +22,7 @@ and Java SDKs. The table is a release gate, not a roadmap claim.
 | Named models | constants for major TrustedRouter aliases | Complete |
 | Error attribution | layer, source, provider, request ID, Retry-After | Complete |
 | Reliability | retry, jitter, timeouts, idempotency, apex failover | Complete |
-| Attestation | signature and complete production claim policy | Complete |
+| Attestation | signature and complete production claim policy; document-only verification; reported binding level | Complete |
 | Client telemetry | `x-tr-client` header channel, contract v1 | Complete |
 | Blocking Rust | endpoint and callback facade | Complete |
 | C/C++ | stable C ABI, JSON calls, Chat, Responses, SSE callback | Complete |
