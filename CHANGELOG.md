@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1 — 2026-10-15
+
+### Fixed
+
+- `Client::attestation` requested `/v1/attestation`, which the live gateway
+  answers with 401 ("Invalid API key"), so it never returned a document in
+  production. It now requests `/attestation` at the API root, beside the
+  `/v1` base path, as the other SDKs do. A base URL without a trailing `/v1`
+  is treated as the API root. The request still carries no credentials.
+
 ## 0.5.0 — 2026-10-15
 
 Document-only gateway attestation, and an explicit binding level on every
